@@ -19,27 +19,36 @@ async function verifyPassword(password, hash) {
 // Login function
 export async function login(username, password) {
   try {
+    console.log('🔐 Attempting login for user:', username);
+    
     // Get user from database
     const user = await getUserByUsername(username);
+    console.log('👤 User lookup result:', user ? 'Found' : 'Not found');
     
     if (!user) {
+      console.error('❌ User not found:', username);
       throw new Error('Usuario no encontrado');
     }
 
     // Check if user is active
     if (user.is_active === 0) {
+      console.error('❌ User account is inactive:', username);
       throw new Error('Esta cuenta ha sido desactivada');
     }
 
+    console.log('🔑 Verifying password...');
     // Verify password
     const isValid = await verifyPassword(password, user.password_hash);
+    console.log('✅ Password verification:', isValid ? 'Success' : 'Failed');
     
     if (!isValid) {
+      console.error('❌ Invalid password for user:', username);
       throw new Error('Contraseña incorrecta');
     }
 
     // Update last login
     await updateLastLogin(user.id);
+    console.log('✅ Login successful for user:', username, '- Role:', user.role);
 
     // Return user data (without password hash)
     return {
@@ -53,7 +62,8 @@ export async function login(username, password) {
       specialization: user.specialization
     };
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('❌ Login error:', error);
+    console.error('Error stack:', error.stack);
     throw error;
   }
 }

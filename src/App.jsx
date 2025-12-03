@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Calendar, Clock, User, FileText, Activity, Users, Pill, TestTube, LogOut, Heart, Stethoscope, Brain, Eye, Bone, AlertCircle, CheckCircle, Menu, X, Phone, Moon, Sun, Settings, Package, Hospital, Scissors, MessageSquare, BarChart3, Scan } from 'lucide-react';
 import { usePatients, useAppointments, useTreatments, useVitalSigns, useNurseNotes } from './hooks/useDatabase';
 import { logout as authLogout } from './services/auth';
@@ -24,7 +24,6 @@ import AdvancedDashboard from './components/AdvancedDashboard';
 const HospitalManagementSystem = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [currentView, setCurrentView] = useState('home');
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
@@ -88,10 +87,6 @@ const HospitalManagementSystem = () => {
     { id: 2, patientId: 2, date: '2025-10-27', diagnosis: 'Accidente cerebrovascular', treatment: 'Tratamiento de emergencia', notes: 'Ingreso por urgencias, requiere monitoreo constante', doctor: 'Dra. Torres' }
   ]);
 
-  const [newAppointment, setNewAppointment] = useState({ patientName: '', date: '', time: '', type: '' });
-  const [newTreatment, setNewTreatment] = useState({ patientId: '', medication: '', dose: '', frequency: '', notes: '' });
-  const [newVitalSigns, setNewVitalSigns] = useState({ patientId: '', temperature: '', bloodPressure: '', heartRate: '', respiratoryRate: '' });
-  const [newNurseNote, setNewNurseNote] = useState({ patientId: '', note: '' });
   const [selectedPatient, setSelectedPatient] = useState(null);
 
   const specialties = [
@@ -463,73 +458,56 @@ const HospitalManagementSystem = () => {
               Hospital San Rafael
             </h1>
           </div>
-          
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex flex-row gap-3">
-            <button 
-              onClick={() => setShowLoginModal(true)} 
-              className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-xl hover:from-purple-700 hover:to-blue-700 transition font-semibold shadow-lg hover:shadow-xl"
-            >
-              Iniciar Sesión
-            </button>
-            <button 
-              onClick={() => setShowRegisterModal(true)} 
-              className="px-6 py-2.5 bg-white text-purple-600 rounded-xl hover:bg-gray-50 transition font-semibold shadow-lg border-2 border-purple-200"
-            >
-              Registrarse
-            </button>
-          </div>
-
-          {/* Mobile Menu Button */}
-          <button 
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 text-white hover:bg-white/10 rounded-lg transition"
-          >
-            {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-          </button>
         </div>
-
-        {/* Mobile Menu Drawer */}
-        {mobileMenuOpen && (
-          <>
-            <div 
-              className="fixed inset-0 bg-black bg-opacity-60 z-40 md:hidden backdrop-blur-sm"
-              onClick={() => setMobileMenuOpen(false)}
-            />
-            <div className="fixed top-0 right-0 h-full w-72 glass-effect shadow-2xl z-50 md:hidden transform transition-transform duration-300 ease-in-out animate-slideInRight">
-              <div className="p-5 border-b border-purple-200 flex justify-between items-center">
-                <h2 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">Menú</h2>
-                <button onClick={() => setMobileMenuOpen(false)} className="p-2 text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition">
-                  <X size={24} />
-                </button>
-              </div>
-              <div className="p-5 flex flex-col gap-3">
-                <button 
-                  onClick={() => { setShowLoginModal(true); setMobileMenuOpen(false); }} 
-                  className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-xl hover:from-purple-700 hover:to-blue-700 transition font-semibold shadow-lg"
-                >
-                  Iniciar Sesión
-                </button>
-                <button 
-                  onClick={() => { setShowRegisterModal(true); setMobileMenuOpen(false); }} 
-                  className="w-full px-4 py-3 bg-white text-purple-600 rounded-xl hover:bg-gray-50 transition font-semibold shadow-lg border-2 border-purple-200"
-                >
-                  Registrarse
-                </button>
-              </div>
-            </div>
-          </>
-        )}
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-16">
-        {/* Hero Section */}
+        {/* Hero Section with Large Login/Register Buttons */}
         <div className="text-center mb-12 md:mb-16 animate-scaleIn">
-          <h2 className="text-4xl md:text-6xl font-bold text-white mb-4 drop-shadow-lg">
+          <h2 className="text-5xl md:text-7xl font-bold text-white mb-6 drop-shadow-2xl">
             Bienvenido a Hospital San Rafael
           </h2>
-          <p className="text-xl md:text-2xl text-white/90 drop-shadow-md font-medium">
+          <p className="text-2xl md:text-3xl text-white/90 drop-shadow-lg font-medium mb-12">
             Cuidado médico de excelencia con tecnología de vanguardia
+          </p>
+          
+          {/* HUGE Login/Register Buttons */}
+          <div className="flex flex-col sm:flex-row gap-6 justify-center items-center max-w-3xl mx-auto mb-8">
+            <button 
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setCurrentView('login');
+              }} 
+              className="group relative w-full sm:w-80 px-12 py-8 bg-gradient-to-r from-purple-600 via-purple-700 to-blue-600 text-white rounded-3xl hover:from-purple-700 hover:via-purple-800 hover:to-blue-700 transition-all duration-300 font-bold text-3xl shadow-2xl hover:shadow-purple-500/50 transform hover:scale-105 overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-white/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <div className="relative flex items-center justify-center gap-4">
+                <User size={40} className="animate-pulse" />
+                <span>Iniciar Sesión</span>
+              </div>
+            </button>
+            
+            <button 
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setCurrentView('register');
+              }} 
+              className="group relative w-full sm:w-80 px-12 py-8 bg-white text-purple-700 rounded-3xl hover:bg-gray-50 transition-all duration-300 font-bold text-3xl shadow-2xl border-4 border-white/50 transform hover:scale-105 overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-purple-600/10 to-blue-600/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <div className="relative flex items-center justify-center gap-4">
+                <Users size={40} />
+                <span>Registrarse</span>
+              </div>
+            </button>
+          </div>
+          
+          <p className="text-lg text-white/80 font-medium">
+            ¿Nuevo usuario? Regístrese para acceder a todos nuestros servicios
           </p>
         </div>
 
@@ -600,6 +578,11 @@ const HospitalManagementSystem = () => {
   );
 
   const NurseDashboard = () => {
+    // Move nurse-specific state here to prevent parent re-renders
+    const [newTreatment, setNewTreatment] = useState({ patientId: '', medication: '', dose: '', frequency: '', notes: '' });
+    const [newVitalSigns, setNewVitalSigns] = useState({ patientId: '', temperature: '', bloodPressure: '', heartRate: '', respiratoryRate: '' });
+    const [newNurseNote, setNewNurseNote] = useState({ patientId: '', note: '' });
+
     if (patientsLoading) {
       return (
         <div className="flex items-center justify-center min-h-[500px]">
@@ -713,9 +696,10 @@ const HospitalManagementSystem = () => {
           </h3>
           <div className="space-y-4">
             <select
+              key="vital-patient-select"
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
               value={newVitalSigns.patientId}
-              onChange={(e) => setNewVitalSigns({...newVitalSigns, patientId: e.target.value})}
+              onChange={(e) => setNewVitalSigns(prev => ({...prev, patientId: e.target.value}))}
             >
               <option value="">Seleccionar paciente</option>
               {patients.map(p => (
@@ -723,32 +707,36 @@ const HospitalManagementSystem = () => {
               ))}
             </select>
             <input
+              key="vital-temp"
               type="text"
               placeholder="🌡️ Temperatura (°C)"
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
               value={newVitalSigns.temperature}
-              onChange={(e) => setNewVitalSigns({...newVitalSigns, temperature: e.target.value})}
+              onChange={(e) => setNewVitalSigns(prev => ({...prev, temperature: e.target.value}))}
             />
             <input
+              key="vital-bp"
               type="text"
               placeholder="💓 Presión Arterial (120/80)"
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
               value={newVitalSigns.bloodPressure}
-              onChange={(e) => setNewVitalSigns({...newVitalSigns, bloodPressure: e.target.value})}
+              onChange={(e) => setNewVitalSigns(prev => ({...prev, bloodPressure: e.target.value}))}
             />
             <input
+              key="vital-hr"
               type="text"
               placeholder="❤️ Frecuencia Cardíaca (lpm)"
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
               value={newVitalSigns.heartRate}
-              onChange={(e) => setNewVitalSigns({...newVitalSigns, heartRate: e.target.value})}
+              onChange={(e) => setNewVitalSigns(prev => ({...prev, heartRate: e.target.value}))}
             />
             <input
+              key="vital-rr"
               type="text"
               placeholder="🫁 Frecuencia Respiratoria (rpm)"
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
               value={newVitalSigns.respiratoryRate}
-              onChange={(e) => setNewVitalSigns({...newVitalSigns, respiratoryRate: e.target.value})}
+              onChange={(e) => setNewVitalSigns(prev => ({...prev, respiratoryRate: e.target.value}))}
             />
             <button
               onClick={registerVitalSigns}
@@ -771,7 +759,7 @@ const HospitalManagementSystem = () => {
             <select
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
               value={newTreatment.patientId}
-              onChange={(e) => setNewTreatment({...newTreatment, patientId: e.target.value})}
+              onChange={(e) => setNewTreatment(prev => ({...prev, patientId: e.target.value}))}
             >
               <option value="">Seleccionar paciente</option>
               {patients.map(p => (
@@ -783,28 +771,28 @@ const HospitalManagementSystem = () => {
               placeholder="💊 Medicamento"
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
               value={newTreatment.medication}
-              onChange={(e) => setNewTreatment({...newTreatment, medication: e.target.value})}
+              onChange={(e) => setNewTreatment(prev => ({...prev, medication: e.target.value}))}
             />
             <input
               type="text"
               placeholder="📊 Dosis (ej: 50mg)"
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
               value={newTreatment.dose}
-              onChange={(e) => setNewTreatment({...newTreatment, dose: e.target.value})}
+              onChange={(e) => setNewTreatment(prev => ({...prev, dose: e.target.value}))}
             />
             <input
               type="text"
               placeholder="⏰ Frecuencia (ej: Cada 8 horas)"
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
               value={newTreatment.frequency}
-              onChange={(e) => setNewTreatment({...newTreatment, frequency: e.target.value})}
+              onChange={(e) => setNewTreatment(prev => ({...prev, frequency: e.target.value}))}
             />
             <textarea
               placeholder="📝 Notas adicionales (opcional)"
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md resize-none"
               rows="3"
               value={newTreatment.notes}
-              onChange={(e) => setNewTreatment({...newTreatment, notes: e.target.value})}
+              onChange={(e) => setNewTreatment(prev => ({...prev, notes: e.target.value}))}
             />
             <button
               onClick={applyTreatment}
@@ -825,7 +813,7 @@ const HospitalManagementSystem = () => {
             <select
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
               value={newNurseNote.patientId}
-              onChange={(e) => setNewNurseNote({...newNurseNote, patientId: e.target.value})}
+              onChange={(e) => setNewNurseNote(prev => ({...prev, patientId: e.target.value}))}
             >
               <option value="">Seleccionar paciente</option>
               {patients.map(p => (
@@ -837,7 +825,7 @@ const HospitalManagementSystem = () => {
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md resize-none"
               rows="6"
               value={newNurseNote.note}
-              onChange={(e) => setNewNurseNote({...newNurseNote, note: e.target.value})}
+              onChange={(e) => setNewNurseNote(prev => ({...prev, note: e.target.value}))}
             />
             <button
               onClick={addNurseNote}
@@ -917,7 +905,11 @@ const HospitalManagementSystem = () => {
     );
   };
 
-  const PatientDashboard = () => (
+  const PatientDashboard = () => {
+    // Move patient-specific state here
+    const [newAppointment, setNewAppointment] = useState({ patientName: '', date: '', time: '', type: '' });
+    
+    return (
     <div className="space-y-6 page-transition">
       <div className="glass-effect p-6 md:p-8 rounded-2xl shadow-lg border border-gray-200/50">
         <h3 className="text-2xl font-bold mb-6 flex items-center bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
@@ -930,12 +922,12 @@ const HospitalManagementSystem = () => {
             placeholder="👤 Nombre del paciente"
             className="px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
             value={newAppointment.patientName}
-            onChange={(e) => setNewAppointment({...newAppointment, patientName: e.target.value})}
+            onChange={(e) => setNewAppointment(prev => ({...prev, patientName: e.target.value}))}
           />
           <select
             className="px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
             value={newAppointment.type}
-            onChange={(e) => setNewAppointment({...newAppointment, type: e.target.value})}
+            onChange={(e) => setNewAppointment(prev => ({...prev, type: e.target.value}))}
           >
             <option value="">🏥 Seleccionar especialidad</option>
             {specialties.map((s, i) => <option key={i} value={s.name}>{s.name}</option>)}
@@ -944,13 +936,13 @@ const HospitalManagementSystem = () => {
             type="date"
             className="px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
             value={newAppointment.date}
-            onChange={(e) => setNewAppointment({...newAppointment, date: e.target.value})}
+            onChange={(e) => setNewAppointment(prev => ({...prev, date: e.target.value}))}
           />
           <input
             type="time"
             className="px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
             value={newAppointment.time}
-            onChange={(e) => setNewAppointment({...newAppointment, time: e.target.value})}
+            onChange={(e) => setNewAppointment(prev => ({...prev, time: e.target.value}))}
           />
         </div>
         <button
@@ -1040,273 +1032,226 @@ const HospitalManagementSystem = () => {
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {currentUser && (
-        <nav className="glass-effect border-b border-gray-200/50 sticky top-0 z-50 shadow-lg">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <div className="flex items-center space-x-3">
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full blur-md opacity-50"></div>
-                <Activity className="text-purple-600 relative" size={32} />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent cursor-pointer hover:opacity-80 transition"
-                    onClick={() => setCurrentView('dashboard')}>
-                  Hospital San Rafael
-                </h1>
-                <p className="text-sm text-gray-600 font-medium">
-                  {currentUser.type === 'nurse' ? '👨‍⚕️ Panel de Enfermería' : 
-                   currentUser.type === 'admin' ? '⚡ Administración' :
-                   currentUser.role === 'doctor' ? '🩺 Panel Médico' :
-                   '👤 Portal del Paciente'}
-                </p>
-              </div>
-            </div>
-            
-            {/* Search Bar (Desktop) */}
-            <div className="hidden lg:flex flex-1 max-w-2xl mx-6">
-              <SearchBar onSearch={handleSearchResult} />
-            </div>
-            
-            {/* Quick Access Menu */}
-            <div className="hidden lg:flex items-center gap-2 mr-4">
-              <button
-                onClick={() => setCurrentView('calendar')}
-                className="p-2 hover:bg-white/30 rounded-xl transition-all"
-                title="Calendario de Citas"
-              >
-                <Calendar size={20} className="text-gray-700" />
-              </button>
-              <button
-                onClick={() => setCurrentView('pharmacy')}
-                className="p-2 hover:bg-white/30 rounded-xl transition-all"
-                title="Farmacia"
-              >
-                <Pill size={20} className="text-gray-700" />
-              </button>
-              <button
-                onClick={() => setCurrentView('emergency')}
-                className="p-2 hover:bg-white/30 rounded-xl transition-all"
-                title="Emergencias"
-              >
-                <AlertCircle size={20} className="text-red-600" />
-              </button>
-              <button
-                onClick={() => setCurrentView('surgery')}
-                className="p-2 hover:bg-white/30 rounded-xl transition-all"
-                title="Cirugías"
-              >
-                <Scissors size={20} className="text-gray-700" />
-              </button>
-              <button
-                onClick={() => setCurrentView('messaging')}
-                className="p-2 hover:bg-white/30 rounded-xl transition-all"
-                title="Mensajería"
-              >
-                <MessageSquare size={20} className="text-gray-700" />
-              </button>
-              <button
-                onClick={() => setCurrentView('reports')}
-                className="p-2 hover:bg-white/30 rounded-xl transition-all"
-                title="Reportes"
-              >
-                <BarChart3 size={20} className="text-gray-700" />
-              </button>
-              <button
-                onClick={() => setCurrentView('lab')}
-                className="p-2 hover:bg-white/30 rounded-xl transition-all"
-                title="Laboratorio"
-              >
-                <TestTube size={20} className="text-gray-700" />
-              </button>
-              <button
-                onClick={() => setCurrentView('radiology')}
-                className="p-2 hover:bg-white/30 rounded-xl transition-all"
-                title="Radiología"
-              >
-                <Scan size={20} className="text-gray-700" />
-              </button>
-              <button
-                onClick={() => setCurrentView('settings')}
-                className="p-2 hover:bg-white/30 rounded-xl transition-all"
-                title="Configuración"
-              >
-                <Settings size={20} className="text-gray-700" />
-              </button>
-            </div>
-            
-            {/* Desktop User Info, Notifications & Actions */}
-            <div className="hidden md:flex items-center space-x-3">
-              {/* Dark Mode Toggle */}
-              <button
-                onClick={toggleDarkMode}
-                className="p-2 hover:bg-white/30 rounded-xl transition-all"
-                title={darkMode ? 'Modo Claro' : 'Modo Oscuro'}
-              >
-                {darkMode ? <Sun size={22} className="text-gray-700" /> : <Moon size={22} className="text-gray-700" />}
-              </button>
-
-              {/* Notification Center */}
-              <NotificationCenter currentUser={currentUser} />
-
-              {/* Profile Button */}
-              <button
-                onClick={() => setCurrentView('profile')}
-                className="p-2 hover:bg-white/30 rounded-xl transition-all"
-                title="Mi Perfil"
-              >
-                <User size={22} className="text-gray-700" />
-              </button>
-
-              {/* User Info */}
-              <div className="text-right bg-gradient-to-r from-purple-50 to-blue-50 px-4 py-2 rounded-xl border border-purple-100">
-                <p className="font-bold text-gray-800">{currentUser.name}</p>
-                <p className="text-sm text-gray-600">
-                  {currentUser.type === 'nurse' ? 'Enfermero' : 
-                   currentUser.type === 'admin' ? 'Administrador' :
-                   currentUser.role === 'doctor' ? 'Médico' :
-                   'Paciente'}
-                </p>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="px-5 py-2.5 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-xl hover:from-red-600 hover:to-pink-600 transition flex items-center space-x-2 font-semibold shadow-lg hover:shadow-xl"
-              >
-                <LogOut size={18} />
-                <span>Salir</span>
-              </button>
-            </div>
-
-            {/* Mobile Menu Button */}
-            <button 
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition"
-            >
-              {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-            </button>
-          </div>
-
-          {/* Mobile Menu Drawer */}
-          {mobileMenuOpen && (
-            <>
-              <div 
-                className="fixed inset-0 bg-black bg-opacity-60 z-40 md:hidden backdrop-blur-sm"
-                onClick={() => setMobileMenuOpen(false)}
-              />
-              <div className="fixed top-0 right-0 h-full w-72 glass-effect shadow-2xl z-50 md:hidden transform transition-transform duration-300 ease-in-out animate-slideInRight">
-                <div className="p-5 border-b border-purple-200 flex justify-between items-center">
-                  <h2 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">Menú</h2>
-                  <button onClick={() => setMobileMenuOpen(false)} className="p-2 text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition">
-                    <X size={24} />
-                  </button>
+        <nav className="glass-effect border-b border-gray-200/50 sticky top-0 z-50 shadow-xl backdrop-blur-md">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            {/* Top Bar */}
+            <div className="flex justify-between items-center py-4">
+              {/* Logo and Brand */}
+              <div className="flex items-center space-x-3 cursor-pointer group" onClick={() => setCurrentView('dashboard')}>
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full blur-lg opacity-50 group-hover:opacity-70 transition"></div>
+                  <Activity className="text-purple-600 relative" size={36} />
                 </div>
-                <div className="p-5">
-                  <div className="mb-6 pb-5 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-blue-50 p-4 rounded-xl">
-                    <p className="font-bold text-gray-800">{currentUser.name}</p>
-                    <p className="text-sm text-gray-600">{currentUser.type === 'nurse' ? '👨‍⚕️ Enfermero' : '👤 Paciente'}</p>
+                <div>
+                  <h1 className="text-2xl font-black bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent group-hover:from-purple-700 group-hover:to-blue-700 transition">
+                    Hospital San Rafael
+                  </h1>
+                  <p className="text-xs text-gray-600 font-semibold">
+                    {currentUser.type === 'nurse' ? '👨‍⚕️ Panel de Enfermería' : 
+                     currentUser.type === 'admin' ? '⚡ Panel de Administración' :
+                     currentUser.role === 'doctor' ? '🩺 Panel Médico' :
+                     '👤 Portal del Paciente'}
+                  </p>
+                </div>
+              </div>
+              
+              {/* Search Bar (Desktop) */}
+              <div className="hidden lg:flex flex-1 max-w-2xl mx-8">
+                <SearchBar onSearch={handleSearchResult} />
+              </div>
+              
+              {/* User Info & Actions */}
+              <div className="flex items-center gap-4">
+                <NotificationCenter />
+                
+                {/* User Menu */}
+                <div className="flex items-center gap-3 bg-gradient-to-r from-purple-50 to-blue-50 px-4 py-2.5 rounded-xl border border-purple-100">
+                  <div className="text-right">
+                    <p className="font-bold text-gray-800 text-sm">{currentUser.name}</p>
+                    <p className="text-xs text-gray-600">
+                      {currentUser.type === 'nurse' ? 'Enfermero' : 
+                       currentUser.type === 'admin' ? 'Administrador' :
+                       currentUser.role === 'doctor' ? 'Médico' :
+                       'Paciente'}
+                    </p>
                   </div>
-                  
-                  {/* Mobile Menu Items */}
-                  <div className="space-y-2 mb-6">
-                    <button
-                      onClick={() => { setCurrentView('dashboard'); setMobileMenuOpen(false); }}
-                      className="w-full px-4 py-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-xl hover:from-purple-600 hover:to-blue-600 transition flex items-center space-x-2 font-semibold shadow-md"
-                    >
-                      <Activity size={18} />
-                      <span>Dashboard</span>
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('calendar'); setMobileMenuOpen(false); }}
-                      className="w-full px-4 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition flex items-center space-x-2 font-medium shadow-sm border border-gray-200"
-                    >
-                      <Calendar size={18} />
-                      <span>Calendario</span>
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('pharmacy'); setMobileMenuOpen(false); }}
-                      className="w-full px-4 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition flex items-center space-x-2 font-medium shadow-sm border border-gray-200"
-                    >
-                      <Pill size={18} />
-                      <span>Farmacia</span>
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('emergency'); setMobileMenuOpen(false); }}
-                      className="w-full px-4 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition flex items-center space-x-2 font-medium shadow-sm border border-gray-200"
-                    >
-                      <AlertCircle size={18} />
-                      <span>Emergencias</span>
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('surgery'); setMobileMenuOpen(false); }}
-                      className="w-full px-4 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition flex items-center space-x-2 font-medium shadow-sm border border-gray-200"
-                    >
-                      <Scissors size={18} />
-                      <span>Cirugías</span>
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('messaging'); setMobileMenuOpen(false); }}
-                      className="w-full px-4 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition flex items-center space-x-2 font-medium shadow-sm border border-gray-200"
-                    >
-                      <MessageSquare size={18} />
-                      <span>Mensajería</span>
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('reports'); setMobileMenuOpen(false); }}
-                      className="w-full px-4 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition flex items-center space-x-2 font-medium shadow-sm border border-gray-200"
-                    >
-                      <BarChart3 size={18} />
-                      <span>Reportes</span>
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('lab'); setMobileMenuOpen(false); }}
-                      className="w-full px-4 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition flex items-center space-x-2 font-medium shadow-sm border border-gray-200"
-                    >
-                      <TestTube size={18} />
-                      <span>Laboratorio</span>
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('radiology'); setMobileMenuOpen(false); }}
-                      className="w-full px-4 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition flex items-center space-x-2 font-medium shadow-sm border border-gray-200"
-                    >
-                      <Scan size={18} />
-                      <span>Radiología</span>
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('profile'); setMobileMenuOpen(false); }}
-                      className="w-full px-4 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition flex items-center space-x-2 font-medium shadow-sm border border-gray-200"
-                    >
-                      <User size={18} />
-                      <span>Mi Perfil</span>
-                    </button>
-                    <button
-                      onClick={() => { setCurrentView('settings'); setMobileMenuOpen(false); }}
-                      className="w-full px-4 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition flex items-center space-x-2 font-medium shadow-sm border border-gray-200"
-                    >
-                      <Settings size={18} />
-                      <span>Configuración</span>
-                    </button>
-                  </div>
-                  
                   <button
-                    onClick={() => { handleLogout(); setMobileMenuOpen(false); }}
-                    className="w-full px-4 py-3 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-xl hover:from-red-600 hover:to-pink-600 transition flex items-center justify-center space-x-2 font-semibold shadow-lg"
+                    onClick={() => setCurrentView('profile')}
+                    className="p-2 hover:bg-purple-100 rounded-lg transition"
+                    title="Mi Perfil"
                   >
-                    <LogOut size={18} />
-                    <span>Cerrar Sesión</span>
+                    <User size={20} className="text-purple-600" />
                   </button>
                 </div>
+
+                {/* Logout Button */}
+                <button
+                  onClick={handleLogout}
+                  className="px-4 py-2.5 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded-xl hover:from-red-600 hover:to-pink-600 transition-all font-semibold shadow-lg hover:shadow-xl flex items-center gap-2"
+                >
+                  <LogOut size={18} />
+                  <span className="hidden md:inline">Salir</span>
+                </button>
               </div>
-            </>
-          )}
+            </div>
+
+            {/* Navigation Menu */}
+            <div className="border-t border-gray-200/50 py-3">
+              <div className="flex items-center justify-center gap-1 overflow-x-auto">
+                <button
+                  onClick={() => setCurrentView('dashboard')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all whitespace-nowrap ${
+                    currentView === 'dashboard' 
+                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Activity size={18} />
+                  <span>Dashboard</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentView('calendar')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all whitespace-nowrap ${
+                    currentView === 'calendar' 
+                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Calendar size={18} />
+                  <span>Calendario</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentView('pharmacy')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all whitespace-nowrap ${
+                    currentView === 'pharmacy' 
+                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Pill size={18} />
+                  <span>Farmacia</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentView('emergency')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all whitespace-nowrap ${
+                    currentView === 'emergency' 
+                      ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white shadow-lg' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <AlertCircle size={18} />
+                  <span>Emergencias</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentView('lab')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all whitespace-nowrap ${
+                    currentView === 'lab' 
+                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <TestTube size={18} />
+                  <span>Laboratorio</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentView('radiology')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all whitespace-nowrap ${
+                    currentView === 'radiology' 
+                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Scan size={18} />
+                  <span>Radiología</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentView('surgery')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all whitespace-nowrap ${
+                    currentView === 'surgery' 
+                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Scissors size={18} />
+                  <span>Cirugías</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentView('messaging')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all whitespace-nowrap ${
+                    currentView === 'messaging' 
+                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <MessageSquare size={18} />
+                  <span>Mensajería</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentView('reports')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all whitespace-nowrap ${
+                    currentView === 'reports' 
+                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <BarChart3 size={18} />
+                  <span>Reportes</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentView('settings')}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold transition-all whitespace-nowrap ${
+                    currentView === 'settings' 
+                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Settings size={18} />
+                  <span>Configuración</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </nav>
       )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
         <ErrorBoundary>
           {currentView === 'home' && <HomePage />}
+          {currentView === 'login' && (
+            <LoginForm 
+              onLoginSuccess={(user) => {
+                handleLoginSuccess(user);
+              }}
+              onBackToHome={() => {
+                setCurrentView('home');
+              }}
+            />
+          )}
+          {currentView === 'register' && (
+            <RegisterForm 
+              onRegisterSuccess={() => {
+                setCurrentView('login');
+              }}
+              onBackToHome={() => {
+                setCurrentView('home');
+              }}
+            />
+          )}
           {currentView === 'dashboard' && currentUser && (
             currentUser.type === 'admin' || currentUser.role === 'admin' ? <AdvancedDashboard currentUser={currentUser} /> :
             currentUser.role === 'doctor' ? <DoctorDashboard currentUser={currentUser} /> :
@@ -1331,26 +1276,6 @@ const HospitalManagementSystem = () => {
           {currentView === 'patientDetails' && currentUser && currentUser.type === 'nurse' && <PatientDetailsView />}
         </ErrorBoundary>
       </div>
-
-      {/* Modals that overlay on top */}
-      {showLoginModal && (
-        <LoginForm 
-          onLoginSuccess={(user) => {
-            handleLoginSuccess(user);
-            setShowLoginModal(false);
-          }}
-          onBackToHome={() => setShowLoginModal(false)}
-        />
-      )}
-      {showRegisterModal && (
-        <RegisterForm 
-          onRegisterSuccess={() => {
-            setShowRegisterModal(false);
-            setShowLoginModal(true);
-          }}
-          onBackToHome={() => setShowRegisterModal(false)}
-        />
-      )}
     </div>
   );
 };

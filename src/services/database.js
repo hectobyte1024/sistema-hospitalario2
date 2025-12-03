@@ -1306,7 +1306,7 @@ export async function updateMealOrder(id, order) {
 export async function getUserByUsername(username) {
   try {
     const result = await db.select(
-      'SELECT * FROM users WHERE username = $1',
+      'SELECT * FROM users WHERE username = ?',
       [username]
     );
     return result.length > 0 ? result[0] : null;
@@ -1320,7 +1320,7 @@ export async function getUserByUsername(username) {
 export async function getUserByEmail(email) {
   try {
     const result = await db.select(
-      'SELECT * FROM users WHERE email = $1',
+      'SELECT * FROM users WHERE email = ?',
       [email]
     );
     return result.length > 0 ? result[0] : null;
@@ -1334,7 +1334,7 @@ export async function getUserByEmail(email) {
 export async function getUserById(id) {
   try {
     const result = await db.select(
-      'SELECT id, username, role, name, email, phone, department, specialization, license_number, is_active, last_login, created_at FROM users WHERE id = $1',
+      'SELECT id, username, role, name, email, phone, department, specialization, license_number, is_active, last_login, created_at FROM users WHERE id = ?',
       [id]
     );
     return result.length > 0 ? result[0] : null;
@@ -1348,7 +1348,7 @@ export async function getUserById(id) {
 export async function createUser(userData) {
   try {
     await db.execute(
-      'INSERT INTO users (username, password_hash, role, name, email, phone, department, specialization) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+      'INSERT INTO users (username, password_hash, role, name, email, phone, department, specialization) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [userData.username, userData.password_hash, userData.role, userData.name, userData.email || null, userData.phone || null, userData.department || null, userData.specialization || null]
     );
     console.log('User created successfully');
@@ -1371,7 +1371,7 @@ export async function getAllUsers() {
 // Get users by role
 export async function getUsersByRole(role) {
   try {
-    return await db.select('SELECT id, username, role, name, email, phone, department, specialization FROM users WHERE role = $1 AND is_active = 1', [role]);
+    return await db.select('SELECT id, username, role, name, email, phone, department, specialization FROM users WHERE role = ? AND is_active = 1', [role]);
   } catch (error) {
     console.error('Error getting users by role:', error);
     throw error;
@@ -1382,7 +1382,7 @@ export async function getUsersByRole(role) {
 export async function updateUser(id, userData) {
   try {
     await db.execute(
-      'UPDATE users SET name = $1, email = $2, phone = $3, department = $4, specialization = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6',
+      'UPDATE users SET name = ?, email = ?, phone = ?, department = ?, specialization = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [userData.name, userData.email || null, userData.phone || null, userData.department || null, userData.specialization || null, id]
     );
     console.log('User updated successfully');
@@ -1396,7 +1396,7 @@ export async function updateUser(id, userData) {
 export async function updateUserProfile(id, profileData) {
   try {
     await db.execute(
-      'UPDATE users SET name = $1, email = $2, phone = $3, bio = $4, profile_photo = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6',
+      'UPDATE users SET name = ?, email = ?, phone = ?, bio = ?, profile_photo = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [profileData.name, profileData.email || null, profileData.phone || null, profileData.bio || null, profileData.profilePhoto || null, id]
     );
     console.log('User profile updated successfully');
@@ -1410,7 +1410,7 @@ export async function updateUserProfile(id, profileData) {
 export async function updateUserPassword(id, newPasswordHash) {
   try {
     await db.execute(
-      'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [newPasswordHash, id]
     );
     console.log('User password updated successfully');
@@ -1425,7 +1425,7 @@ export async function updateLastLogin(id) {
   try {
     const now = new Date().toISOString();
     await db.execute(
-      'UPDATE users SET last_login = $1 WHERE id = $2',
+      'UPDATE users SET last_login = ? WHERE id = ?',
       [now, id]
     );
   } catch (error) {
@@ -1436,7 +1436,7 @@ export async function updateLastLogin(id) {
 // Deactivate user (soft delete)
 export async function deactivateUser(id) {
   try {
-    await db.execute('UPDATE users SET is_active = 0 WHERE id = $1', [id]);
+    await db.execute('UPDATE users SET is_active = 0 WHERE id = ?', [id]);
     console.log('User deactivated successfully');
   } catch (error) {
     console.error('Error deactivating user:', error);
@@ -1447,7 +1447,7 @@ export async function deactivateUser(id) {
 // Delete user
 export async function deleteUser(id) {
   try {
-    await db.execute('DELETE FROM users WHERE id = $1', [id]);
+    await db.execute('DELETE FROM users WHERE id = ?', [id]);
     console.log('User deleted successfully');
   } catch (error) {
     console.error('Error deleting user:', error);
@@ -1459,7 +1459,7 @@ export async function deleteUser(id) {
 export async function createPasswordResetToken(userId, token, expiresAt) {
   try {
     await db.execute(
-      'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
+      'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
       [userId, token, expiresAt]
     );
   } catch (error) {
@@ -1471,7 +1471,7 @@ export async function createPasswordResetToken(userId, token, expiresAt) {
 export async function getPasswordResetToken(token) {
   try {
     const result = await db.select(
-      'SELECT * FROM password_reset_tokens WHERE token = $1 AND used = 0',
+      'SELECT * FROM password_reset_tokens WHERE token = ? AND used = 0',
       [token]
     );
     return result.length > 0 ? result[0] : null;
@@ -1484,7 +1484,7 @@ export async function getPasswordResetToken(token) {
 export async function markTokenAsUsed(token) {
   try {
     await db.execute(
-      'UPDATE password_reset_tokens SET used = 1 WHERE token = $1',
+      'UPDATE password_reset_tokens SET used = 1 WHERE token = ?',
       [token]
     );
   } catch (error) {
