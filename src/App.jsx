@@ -21,6 +21,64 @@ import LabManagement from './components/LabManagement';
 import RadiologyManagement from './components/RadiologyManagement';
 import AdvancedDashboard from './components/AdvancedDashboard';
 
+// Triage helper function - Escala institucional de triaje
+const getTriageInfo = (level) => {
+  const triageScales = {
+    1: { 
+      name: 'Rojo - Resucitación',
+      color: 'bg-red-600',
+      borderColor: 'border-red-600',
+      textColor: 'text-red-600',
+      bgLight: 'bg-red-50',
+      description: 'Emergencia vital inmediata',
+      icon: '🔴',
+      priority: 'Inmediata'
+    },
+    2: { 
+      name: 'Naranja - Emergencia',
+      color: 'bg-orange-500',
+      borderColor: 'border-orange-500',
+      textColor: 'text-orange-600',
+      bgLight: 'bg-orange-50',
+      description: 'Emergencia, atención en 10 min',
+      icon: '🟠',
+      priority: '10 minutos'
+    },
+    3: { 
+      name: 'Amarillo - Urgente',
+      color: 'bg-yellow-500',
+      borderColor: 'border-yellow-500',
+      textColor: 'text-yellow-700',
+      bgLight: 'bg-yellow-50',
+      description: 'Urgente, atención en 30 min',
+      icon: '🟡',
+      priority: '30 minutos'
+    },
+    4: { 
+      name: 'Verde - Menos Urgente',
+      color: 'bg-green-500',
+      borderColor: 'border-green-500',
+      textColor: 'text-green-700',
+      bgLight: 'bg-green-50',
+      description: 'Menos urgente, atención en 60 min',
+      icon: '🟢',
+      priority: '60 minutos'
+    },
+    5: { 
+      name: 'Azul - No Urgente',
+      color: 'bg-blue-500',
+      borderColor: 'border-blue-500',
+      textColor: 'text-blue-700',
+      bgLight: 'bg-blue-50',
+      description: 'No urgente, atención en 120 min',
+      icon: '🔵',
+      priority: '120 minutos'
+    }
+  };
+  
+  return triageScales[level] || triageScales[3]; // Default to yellow if not specified
+};
+
 const HospitalManagementSystem = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const [currentView, setCurrentView] = useState('home');
@@ -243,6 +301,7 @@ const HospitalManagementSystem = () => {
   const PatientDetailsView = () => {
     if (!selectedPatient) return null;
     
+    const triageInfo = getTriageInfo(selectedPatient.triage_level || 3);
     const patientTreatments = treatments.filter(t => t.patientId === selectedPatient.id);
     const patientHistory = medicalHistory.filter(h => h.patientId === selectedPatient.id);
     const patientLabs = labTests.filter(l => l.patientId === selectedPatient.id);
@@ -259,11 +318,24 @@ const HospitalManagementSystem = () => {
           ← Volver al Dashboard
         </button>
 
-        <div className="bg-white p-4 md:p-6 rounded-lg shadow-md">
-          <h2 className="text-xl md:text-2xl font-bold mb-4 text-gray-800 flex items-center">
-            <User className="mr-2 text-blue-600" size={24} />
-            Información del Paciente
-          </h2>
+        <div className="bg-white p-4 md:p-6 rounded-lg shadow-md border-l-4 ${triageInfo.borderColor}">
+          <div className="flex items-start justify-between mb-4">
+            <h2 className="text-xl md:text-2xl font-bold text-gray-800 flex items-center">
+              <User className="mr-2 text-blue-600" size={24} />
+              Información del Paciente
+            </h2>
+            {/* Triage Badge */}
+            <div className={`${triageInfo.bgLight} border-2 ${triageInfo.borderColor} rounded-xl px-4 py-2 text-center`}>
+              <div className="text-3xl mb-1">{triageInfo.icon}</div>
+              <div className={`text-xs font-bold ${triageInfo.textColor} uppercase`}>
+                Triaje: Nivel {selectedPatient.triage_level || 3}
+              </div>
+              <div className={`text-xs ${triageInfo.textColor} font-semibold mt-1`}>
+                ⏱️ {triageInfo.priority}
+              </div>
+            </div>
+          </div>
+          
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <p className="text-gray-600 text-xs md:text-sm">Nombre</p>
@@ -732,16 +804,50 @@ const HospitalManagementSystem = () => {
         <div className="glass-effect p-6 rounded-2xl card-hover border-l-4 border-red-500 shadow-lg">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 text-sm font-medium">Pacientes Críticos</p>
+              <p className="text-gray-600 text-sm font-medium">Triaje Rojo (Nivel 1-2)</p>
               <p className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-red-600 to-pink-400 bg-clip-text text-transparent">
-                {assignedPatients.filter(p => p.condition === 'Crítico').length}
+                {assignedPatients.filter(p => (p.triage_level || 3) <= 2).length}
               </p>
+              <p className="text-xs text-gray-500 mt-1">Atención inmediata</p>
             </div>
             <div className="relative">
               <div className="absolute inset-0 bg-red-500 rounded-full blur-lg opacity-30 animate-pulse"></div>
               <AlertCircle className="text-red-600 relative" size={40} />
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Triage Overview */}
+      <div className="glass-effect p-6 rounded-2xl shadow-lg border border-gray-200/50">
+        <h3 className="text-xl font-bold mb-5 flex items-center bg-gradient-to-r from-red-600 to-orange-600 bg-clip-text text-transparent">
+          <AlertCircle className="mr-2 text-red-600" size={24} />
+          Estado de Triaje - Mis Pacientes
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          {[1, 2, 3, 4, 5].map(level => {
+            const triageInfo = getTriageInfo(level);
+            const count = assignedPatients.filter(p => (p.triage_level || 3) === level).length;
+            return (
+              <div 
+                key={level}
+                className={`${triageInfo.bgLight} border-2 ${triageInfo.borderColor} rounded-xl p-4 text-center transition-all hover:shadow-lg ${count > 0 ? 'cursor-pointer hover:scale-105' : 'opacity-60'}`}
+              >
+                <div className="text-4xl mb-2 ${level === 1 || level === 2 ? 'animate-pulse' : ''}">{triageInfo.icon}</div>
+                <div className={`text-3xl font-bold ${triageInfo.textColor} mb-1`}>{count}</div>
+                <div className={`text-xs font-semibold ${triageInfo.textColor} uppercase mb-1`}>
+                  Nivel {level}
+                </div>
+                <div className="text-xs text-gray-600 font-medium">{triageInfo.priority}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-sm text-gray-700">
+            <span className="font-bold">ℹ️ Sistema de Triaje:</span> 
+            <span className="ml-2">1=Resucitación • 2=Emergencia • 3=Urgente • 4=Menos Urgente • 5=No Urgente</span>
+          </p>
         </div>
       </div>
 
@@ -818,23 +924,56 @@ const HospitalManagementSystem = () => {
           </h3>
           {assignedPatients.length > 0 ? (
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
-              {assignedPatients.map(patient => (
-                <div key={patient.id} className="bg-white border-2 border-blue-200 p-4 rounded-xl hover:border-purple-300 hover:shadow-md cursor-pointer transition-all group" onClick={() => viewPatientDetails(patient)}>
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="font-bold text-gray-800 group-hover:text-purple-600 transition">{patient.name}</p>
-                      <p className="text-sm text-gray-600">🏥 Habitación {patient.room} • {patient.age} años</p>
-                      <p className="text-xs text-gray-500">🩸 Tipo de sangre: {patient.blood_type}</p>
+              {assignedPatients.map(patient => {
+                const triageInfo = getTriageInfo(patient.triage_level || 3);
+                return (
+                  <div 
+                    key={patient.id} 
+                    className={`bg-white border-l-4 ${triageInfo.borderColor} p-4 rounded-xl hover:shadow-lg cursor-pointer transition-all group relative overflow-hidden`} 
+                    onClick={() => viewPatientDetails(patient)}
+                  >
+                    {/* Triage indicator background */}
+                    <div className={`absolute top-0 right-0 w-24 h-24 ${triageInfo.bgLight} opacity-50 rounded-bl-full`}></div>
+                    
+                    <div className="relative">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-bold text-gray-800 group-hover:text-purple-600 transition text-lg">{patient.name}</p>
+                            <span className={`text-2xl ${triageInfo.icon === '🔴' ? 'animate-pulse' : ''}`}>
+                              {triageInfo.icon}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-600">🏥 Habitación {patient.room} • {patient.age} años</p>
+                          <p className="text-xs text-gray-500">🩸 Tipo de sangre: {patient.blood_type}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <span className={'status-badge ' + (patient.condition === 'Crítico' ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white' : patient.condition === 'Estable' ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white' : 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white')}>
+                            {patient.condition}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* Triage level indicator */}
+                      <div className={`mt-2 px-3 py-1.5 ${triageInfo.bgLight} border ${triageInfo.borderColor} rounded-lg`}>
+                        <div className="flex items-center justify-between">
+                          <span className={`text-xs font-bold ${triageInfo.textColor} uppercase`}>
+                            Triaje: Nivel {patient.triage_level || 3}
+                          </span>
+                          <span className={`text-xs ${triageInfo.textColor} font-semibold`}>
+                            ⏱️ {triageInfo.priority}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-600 mt-0.5">{triageInfo.description}</p>
+                      </div>
+                      
                       {patient.assignment_notes && (
-                        <p className="text-xs text-gray-500 mt-1 italic">📋 {patient.assignment_notes}</p>
+                        <p className="text-xs text-gray-500 mt-2 italic bg-gray-50 p-2 rounded">📋 {patient.assignment_notes}</p>
                       )}
                     </div>
-                    <span className={'status-badge ' + (patient.condition === 'Crítico' ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white' : patient.condition === 'Estable' ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white' : 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white')}>
-                      {patient.condition}
-                    </span>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="text-center py-8 text-gray-500">

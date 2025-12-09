@@ -36,6 +36,7 @@ async function createTables() {
         gender TEXT,
         room TEXT NOT NULL,
         condition TEXT NOT NULL,
+        triage_level INTEGER DEFAULT 3,
         admission_date TEXT NOT NULL,
         blood_type TEXT NOT NULL,
         allergies TEXT,
@@ -1541,6 +1542,16 @@ export async function initializeSampleNurseData() {
       console.log('No patients found for assignments');
       return;
     }
+    
+    // Update patients with triage levels (simulate different urgency levels)
+    const triageLevels = [1, 2, 3, 4]; // Mix of urgency levels
+    for (let i = 0; i < patients.length && i < triageLevels.length; i++) {
+      await db.execute(
+        'UPDATE patients SET triage_level = ? WHERE id = ?',
+        [triageLevels[i], patients[i].id]
+      );
+    }
+    console.log(`✓ Updated triage levels for ${patients.length} patients`);
     
     // Assign patients to nurse for today's shift (index 1 = today)
     const todayShiftId = shiftIds[1];
