@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import { initializeApp } from './hooks/useDatabase'
+import { createDatabaseIndexes, initPreparedQueries } from './utils/databaseOptimizations'
 
 console.log('🚀 Application starting - main.jsx loaded');
 
@@ -14,15 +15,23 @@ root.render(
     <div style={{ padding: '20px', fontFamily: 'system-ui' }}>
       <h2>⏳ Inicializando sistema hospitalario...</h2>
       <p>Configurando base de datos, por favor espere...</p>
+      <p style={{ fontSize: '12px', color: '#666', marginTop: '10px' }}>
+        🚀 Optimizando rendimiento...
+      </p>
     </div>
   </StrictMode>
 );
 
-// Initialize database in background
+// Initialize database and optimizations in background
 console.log('🚀 Starting database initialization...');
-initializeApp()
+Promise.all([
+  initializeApp(),
+  createDatabaseIndexes().catch(err => console.warn('Índices ya existen o error:', err)),
+  initPreparedQueries().catch(err => console.warn('Error preparando queries:', err))
+])
   .then(() => {
     console.log('✅ Database initialized successfully');
+    console.log('✅ Performance optimizations applied');
     console.log('✅ Rendering full application...');
     root.render(
       <StrictMode>

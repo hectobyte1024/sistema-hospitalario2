@@ -1,29 +1,45 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense, useMemo } from 'react';
 import { Calendar, Clock, User, FileText, Activity, Users, Pill, TestTube, LogOut, Heart, Stethoscope, Brain, Eye, Bone, AlertCircle, CheckCircle, Menu, X, Phone, Moon, Sun, Settings, Package, Hospital, Scissors, MessageSquare, BarChart3, Scan, Keyboard as KeyboardIcon } from 'lucide-react';
 import { usePatients, useAppointments, useTreatments, useVitalSigns, useNurseNotes, usePatientTransfers, useNonPharmaTreatments } from './hooks/useDatabase';
 import { logout as authLogout } from './services/auth';
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
-import AdminDashboard from './components/AdminDashboard';
-import DoctorDashboard from './components/DoctorDashboard';
 import NotificationCenter from './components/NotificationCenter';
 import SearchBar from './components/SearchBar';
-import UserProfile from './components/UserProfile';
 import ErrorBoundary from './components/ErrorBoundary';
-import AppointmentCalendar from './components/AppointmentCalendar';
-import PharmacyManagement from './components/PharmacyManagement';
-import EmergencyRoom from './components/EmergencyRoom';
-import SettingsPage from './components/SettingsPage';
-import SurgeryScheduling from './components/SurgeryScheduling';
-import MessagingSystem from './components/MessagingSystem';
-import ReportsAnalytics from './components/ReportsAnalytics';
-import LabManagement from './components/LabManagement';
-import RadiologyManagement from './components/RadiologyManagement';
-import AdvancedDashboard from './components/AdvancedDashboard';
 import GuidedTour from './components/GuidedTour';
 import KeyboardShortcuts, { useKeyboardShortcuts } from './components/KeyboardShortcuts';
 import Tooltip, { HelpTooltip } from './components/Tooltip';
 import Breadcrumbs from './components/Breadcrumbs';
+import { useDebounce, useCachedData, usePagination, dataCache } from './utils/performanceOptimizations';
+
+// Lazy loading de componentes pesados para mejorar rendimiento inicial
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const DoctorDashboard = lazy(() => import('./components/DoctorDashboard'));
+const UserProfile = lazy(() => import('./components/UserProfile'));
+const AppointmentCalendar = lazy(() => import('./components/AppointmentCalendar'));
+const PharmacyManagement = lazy(() => import('./components/PharmacyManagement'));
+const EmergencyRoom = lazy(() => import('./components/EmergencyRoom'));
+const SettingsPage = lazy(() => import('./components/SettingsPage'));
+const SurgeryScheduling = lazy(() => import('./components/SurgeryScheduling'));
+const MessagingSystem = lazy(() => import('./components/MessagingSystem'));
+const ReportsAnalytics = lazy(() => import('./components/ReportsAnalytics'));
+const LabManagement = lazy(() => import('./components/LabManagement'));
+const RadiologyManagement = lazy(() => import('./components/RadiologyManagement'));
+const AdvancedDashboard = lazy(() => import('./components/AdvancedDashboard'));
+
+// Componente de loading para Suspense
+const LoadingFallback = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-blue-50">
+    <div className="text-center">
+      <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full mb-4 animate-pulse">
+        <Activity className="text-white" size={32} />
+      </div>
+      <p className="text-gray-600 font-semibold text-lg">Cargando módulo...</p>
+      <p className="text-gray-500 text-sm mt-2">Optimizando rendimiento</p>
+    </div>
+  </div>
+);
 
 // Triage helper function - Escala institucional de triaje
 const getTriageInfo = (level) => {
@@ -3050,7 +3066,7 @@ Ejemplo:
             />
           )}
           {currentView === 'dashboard' && currentUser && (
-            <>
+            <Suspense fallback={<LoadingFallback />}>
               {/* Tour guiado para nuevos usuarios */}
               <GuidedTour 
                 userRole={currentUser.role || currentUser.type} 
@@ -3060,23 +3076,61 @@ Ejemplo:
               currentUser.role === 'doctor' ? <DoctorDashboard currentUser={currentUser} /> :
               currentUser.type === 'nurse' ? <NurseDashboard /> : 
               <PatientDashboard />}
-            </>
+            </Suspense>
           )}
           {currentView === 'profile' && currentUser && (
-            <UserProfile 
-              currentUser={currentUser} 
-              onUpdateUser={(updatedUser) => setCurrentUser(updatedUser)}
-            />
+            <Suspense fallback={<LoadingFallback />}>
+              <UserProfile 
+                currentUser={currentUser} 
+                onUpdateUser={(updatedUser) => setCurrentUser(updatedUser)}
+              />
+            </Suspense>
           )}
-          {currentView === 'calendar' && currentUser && <AppointmentCalendar currentUser={currentUser} />}
-          {currentView === 'pharmacy' && currentUser && <PharmacyManagement currentUser={currentUser} />}
-          {currentView === 'emergency' && currentUser && <EmergencyRoom currentUser={currentUser} />}
-          {currentView === 'surgery' && currentUser && <SurgeryScheduling currentUser={currentUser} />}
-          {currentView === 'messaging' && currentUser && <MessagingSystem currentUser={currentUser} />}
-          {currentView === 'reports' && currentUser && <ReportsAnalytics currentUser={currentUser} />}
-          {currentView === 'lab' && currentUser && <LabManagement currentUser={currentUser} />}
-          {currentView === 'radiology' && currentUser && <RadiologyManagement currentUser={currentUser} />}
-          {currentView === 'settings' && currentUser && <SettingsPage currentUser={currentUser} />}
+          {currentView === 'calendar' && currentUser && (
+            <Suspense fallback={<LoadingFallback />}>
+              <AppointmentCalendar currentUser={currentUser} />
+            </Suspense>
+          )}
+          {currentView === 'pharmacy' && currentUser && (
+            <Suspense fallback={<LoadingFallback />}>
+              <PharmacyManagement currentUser={currentUser} />
+            </Suspense>
+          )}
+          {currentView === 'emergency' && currentUser && (
+            <Suspense fallback={<LoadingFallback />}>
+              <EmergencyRoom currentUser={currentUser} />
+            </Suspense>
+          )}
+          {currentView === 'surgery' && currentUser && (
+            <Suspense fallback={<LoadingFallback />}>
+              <SurgeryScheduling currentUser={currentUser} />
+            </Suspense>
+          )}
+          {currentView === 'messaging' && currentUser && (
+            <Suspense fallback={<LoadingFallback />}>
+              <MessagingSystem currentUser={currentUser} />
+            </Suspense>
+          )}
+          {currentView === 'reports' && currentUser && (
+            <Suspense fallback={<LoadingFallback />}>
+              <ReportsAnalytics currentUser={currentUser} />
+            </Suspense>
+          )}
+          {currentView === 'lab' && currentUser && (
+            <Suspense fallback={<LoadingFallback />}>
+              <LabManagement currentUser={currentUser} />
+            </Suspense>
+          )}
+          {currentView === 'radiology' && currentUser && (
+            <Suspense fallback={<LoadingFallback />}>
+              <RadiologyManagement currentUser={currentUser} />
+            </Suspense>
+          )}
+          {currentView === 'settings' && currentUser && (
+            <Suspense fallback={<LoadingFallback />}>
+              <SettingsPage currentUser={currentUser} />
+            </Suspense>
+          )}
           {currentView === 'patientDetails' && currentUser && currentUser.type === 'nurse' && <PatientDetailsView />}
         </ErrorBoundary>
       </div>
