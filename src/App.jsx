@@ -244,8 +244,14 @@ const HospitalManagementSystem = () => {
 
   const registerVitalSigns = async () => {
     if (newVitalSigns.patientId && newVitalSigns.temperature && newVitalSigns.bloodPressure && newVitalSigns.heartRate && newVitalSigns.respiratoryRate) {
-      const now = new Date();
-      const timestamp = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      // Usar la fecha/hora ingresada o la actual
+      let timestamp;
+      if (newVitalSigns.dateTime) {
+        timestamp = newVitalSigns.dateTime.replace('T', ' ');
+      } else {
+        const now = new Date();
+        timestamp = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+      }
       
       try {
         const newVS = {
@@ -258,14 +264,14 @@ const HospitalManagementSystem = () => {
           registered_by: currentUser.name
         };
         await addVitalSignsDB(newVS);
-        setNewVitalSigns({ patientId: '', temperature: '', bloodPressure: '', heartRate: '', respiratoryRate: '' });
-        alert('Signos vitales registrados exitosamente');
+        setNewVitalSigns({ patientId: '', temperature: '', bloodPressure: '', heartRate: '', respiratoryRate: '', dateTime: '' });
+        alert('✅ Signos vitales registrados exitosamente');
       } catch (error) {
         console.error('Error registering vital signs:', error);
         alert('Error al registrar signos vitales. Por favor intente nuevamente.');
       }
     } else {
-      alert('Por favor complete todos los campos');
+      alert('Por favor complete todos los campos obligatorios');
     }
   };
 
@@ -381,57 +387,221 @@ const HospitalManagementSystem = () => {
         </div>
 
         <div className="bg-white p-4 md:p-6 rounded-lg shadow-md">
-          <h3 className="text-lg md:text-xl font-bold mb-4 flex items-center">
-            <Activity className="mr-2 text-red-600" size={20} />
-            Signos Vitales Recientes
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg md:text-xl font-bold flex items-center">
+              <Activity className="mr-2 text-red-600" size={20} />
+              Historial de Signos Vitales
+            </h3>
+            <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-semibold">
+              {patientVitals.length} {patientVitals.length === 1 ? 'registro' : 'registros'}
+            </span>
+          </div>
           {patientVitals.length > 0 ? (
-            <div className="space-y-3">
-              {patientVitals.slice(-5).reverse().map(vital => (
-                <div key={vital.id} className="border border-gray-200 p-3 md:p-4 rounded-lg">
-                  <p className="text-xs md:text-sm text-gray-500 mb-2">{vital.date} - {vital.registeredBy}</p>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-                    <div>
-                      <p className="text-xs text-gray-600">Temperatura</p>
-                      <p className="font-semibold text-sm md:text-base">{vital.temperature}°C</p>
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+              {patientVitals.slice().reverse().map((vital, index) => {
+                const vitalDate = new Date(vital.date);
+                const isToday = vitalDate.toDateString() === new Date().toDateString();
+                const isRecent = (Date.now() - vitalDate.getTime()) < 3600000; // Última hora
+                
+                return (
+                  <div key={vital.id || index} className="border-l-4 border-red-300 bg-red-50 rounded-xl p-4 hover:shadow-md transition-all">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Clock className="text-red-600" size={16} />
+                        <span className="font-bold text-gray-800 text-sm">
+                          📅 {vitalDate.toLocaleDateString('es-ES', { 
+                            day: 'numeric', 
+                            month: 'long', 
+                            year: 'numeric' 
+                          })}
+                        </span>
+                        {isToday && (
+                          <span className="text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full font-semibold">
+                            HOY
+                          </span>
+                        )}
+                        {isRecent && (
+                          <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full font-semibold">
+                            RECIENTE
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-sm font-bold text-red-700">
+                        🕐 {vitalDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                     </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Presión Arterial</p>
-                      <p className="font-semibold text-sm md:text-base">{vital.bloodPressure} mmHg</p>
+                    
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div className="bg-white p-2.5 rounded-lg">
+                        <p className="text-xs text-gray-600 flex items-center gap-1">
+                          🌡️ Temperatura
+                        </p>
+                        <p className="font-bold text-base text-gray-800">{vital.temperature}°C</p>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-lg">
+                        <p className="text-xs text-gray-600 flex items-center gap-1">
+                          💓 Presión Arterial
+                        </p>
+                        <p className="font-bold text-base text-gray-800">{vital.bloodPressure} mmHg</p>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-lg">
+                        <p className="text-xs text-gray-600 flex items-center gap-1">
+                          ❤️ Frec. Cardíaca
+                        </p>
+                        <p className="font-bold text-base text-gray-800">{vital.heartRate} lpm</p>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-lg">
+                        <p className="text-xs text-gray-600 flex items-center gap-1">
+                          🫁 Frec. Respiratoria
+                        </p>
+                        <p className="font-bold text-base text-gray-800">{vital.respiratoryRate} rpm</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Frecuencia Cardíaca</p>
-                      <p className="font-semibold text-sm md:text-base">{vital.heartRate} lpm</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Frecuencia Respiratoria</p>
-                      <p className="font-semibold text-sm md:text-base">{vital.respiratoryRate} rpm</p>
+                    
+                    <div className="flex items-center justify-between pt-2 border-t border-red-200">
+                      <p className="text-xs text-gray-600">
+                        👨‍⚕️ <span className="font-semibold">{vital.registeredBy}</span>
+                      </p>
+                      <p className="text-xs text-gray-400">#{vital.id}</p>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
-            <p className="text-sm text-gray-500">No hay signos vitales registrados</p>
+            <div className="text-center py-8 text-gray-500">
+              <Activity className="mx-auto mb-3 text-gray-400" size={48} />
+              <p className="text-sm">No hay signos vitales registrados</p>
+              <p className="text-xs mt-2">Los registros de signos vitales aparecerán aquí</p>
+            </div>
           )}
         </div>
 
         <div className="bg-white p-4 md:p-6 rounded-lg shadow-md">
-          <h3 className="text-lg md:text-xl font-bold mb-4 flex items-center">
-            <FileText className="mr-2 text-blue-600" size={20} />
-            Notas de Enfermería
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg md:text-xl font-bold flex items-center">
+              <FileText className="mr-2 text-blue-600" size={20} />
+              Historial de Notas Evolutivas
+            </h3>
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
+                {patientNotes.length} {patientNotes.length === 1 ? 'nota' : 'notas'}
+              </span>
+            </div>
+          </div>
+          
           {patientNotes.length > 0 ? (
-            <div className="space-y-3">
-              {patientNotes.slice(-5).reverse().map(note => (
-                <div key={note.id} className="border border-gray-200 p-3 md:p-4 rounded-lg">
-                  <p className="text-xs md:text-sm text-gray-500 mb-1">{note.date} - {note.nurseName}</p>
-                  <p className="text-sm md:text-base text-gray-800">{note.note}</p>
-                </div>
-              ))}
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+              {patientNotes.slice().reverse().map((note, index) => {
+                const noteTypeIcons = {
+                  'evolutiva': '📋',
+                  'observacion': '👁️',
+                  'incidente': '⚠️',
+                  'mejora': '✅',
+                  'deterioro': '🔴'
+                };
+                const noteTypeColors = {
+                  'evolutiva': 'border-blue-200 bg-blue-50',
+                  'observacion': 'border-purple-200 bg-purple-50',
+                  'incidente': 'border-orange-200 bg-orange-50',
+                  'mejora': 'border-green-200 bg-green-50',
+                  'deterioro': 'border-red-200 bg-red-50'
+                };
+                const noteTypeNames = {
+                  'evolutiva': 'Nota Evolutiva',
+                  'observacion': 'Observación',
+                  'incidente': 'Incidente',
+                  'mejora': 'Mejoría',
+                  'deterioro': 'Deterioro'
+                };
+                
+                const noteDate = new Date(note.date);
+                const isRecent = (Date.now() - noteDate.getTime()) < 86400000; // Últimas 24 horas
+                
+                return (
+                  <div 
+                    key={note.id || index} 
+                    className={`border-l-4 ${noteTypeColors[note.noteType || 'evolutiva'] || 'border-blue-200 bg-blue-50'} p-4 rounded-xl hover:shadow-md transition-all`}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl">{noteTypeIcons[note.noteType || 'evolutiva'] || '📋'}</span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-gray-800 text-sm">
+                              {noteTypeNames[note.noteType || 'evolutiva'] || 'Nota Evolutiva'}
+                            </span>
+                            {isRecent && (
+                              <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full font-semibold">
+                                RECIENTE
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            📅 {noteDate.toLocaleDateString('es-ES', { 
+                              day: 'numeric', 
+                              month: 'long', 
+                              year: 'numeric',
+                              hour: '2-digit', 
+                              minute: '2-digit' 
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <p className="text-sm text-gray-700 leading-relaxed mb-2 pl-8 whitespace-pre-wrap">
+                      {note.note}
+                    </p>
+                    
+                    <div className="flex items-center justify-between pl-8 pt-2 border-t border-gray-200">
+                      <p className="text-xs text-gray-500">
+                        👨‍⚕️ <span className="font-semibold">{note.nurseName}</span>
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        #{note.id}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
-            <p className="text-sm text-gray-500">No hay notas de enfermería</p>
+            <div className="text-center py-8 text-gray-500">
+              <FileText className="mx-auto mb-3 text-gray-400" size={48} />
+              <p className="text-sm">No hay notas evolutivas registradas para este paciente</p>
+              <p className="text-xs mt-2">Las notas de enfermería aparecerán aquí cuando se registren</p>
+            </div>
+          )}
+          
+          {/* Resumen por tipo de nota */}
+          {patientNotes.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <p className="text-xs font-semibold text-gray-600 mb-2">Resumen por tipo:</p>
+              <div className="flex flex-wrap gap-2">
+                {['evolutiva', 'observacion', 'incidente', 'mejora', 'deterioro'].map(type => {
+                  const count = patientNotes.filter(n => (n.noteType || 'evolutiva') === type).length;
+                  if (count === 0) return null;
+                  
+                  const typeInfo = {
+                    'evolutiva': { icon: '📋', color: 'bg-blue-100 text-blue-700', name: 'Evolutivas' },
+                    'observacion': { icon: '👁️', color: 'bg-purple-100 text-purple-700', name: 'Observaciones' },
+                    'incidente': { icon: '⚠️', color: 'bg-orange-100 text-orange-700', name: 'Incidentes' },
+                    'mejora': { icon: '✅', color: 'bg-green-100 text-green-700', name: 'Mejorías' },
+                    'deterioro': { icon: '🔴', color: 'bg-red-100 text-red-700', name: 'Deterioros' }
+                  };
+                  
+                  return (
+                    <span 
+                      key={type}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold ${typeInfo[type].color}`}
+                    >
+                      {typeInfo[type].icon} {count} {typeInfo[type].name}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
 
@@ -672,7 +842,7 @@ const HospitalManagementSystem = () => {
   const NurseDashboard = () => {
     // Move nurse-specific state here to prevent parent re-renders
     const [newTreatment, setNewTreatment] = useState({ patientId: '', medication: '', dose: '', frequency: '', notes: '' });
-    const [newVitalSigns, setNewVitalSigns] = useState({ patientId: '', temperature: '', bloodPressure: '', heartRate: '', respiratoryRate: '' });
+    const [newVitalSigns, setNewVitalSigns] = useState({ patientId: '', temperature: '', bloodPressure: '', heartRate: '', respiratoryRate: '', dateTime: '' });
     const [newNurseNote, setNewNurseNote] = useState({ patientId: '', note: '', noteType: 'evolutiva' });
     const [assignedPatients, setAssignedPatients] = useState([]);
     const [nurseShifts, setNurseShifts] = useState([]);
@@ -936,11 +1106,17 @@ const HospitalManagementSystem = () => {
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
               {assignedPatients.map(patient => {
                 const triageInfo = getTriageInfo(patient.triage_level || 3);
+                const patientNotesCount = nurseNotes.filter(n => n.patientId === patient.id).length;
+                const recentNotesCount = nurseNotes.filter(n => {
+                  if (n.patientId !== patient.id) return false;
+                  const noteDate = new Date(n.date);
+                  return (Date.now() - noteDate.getTime()) < 86400000; // Últimas 24 horas
+                }).length;
+                
                 return (
                   <div 
                     key={patient.id} 
-                    className={`bg-white border-l-4 ${triageInfo.borderColor} p-4 rounded-xl hover:shadow-lg cursor-pointer transition-all group relative overflow-hidden`} 
-                    onClick={() => viewPatientDetails(patient)}
+                    className={`bg-white border-l-4 ${triageInfo.borderColor} p-4 rounded-xl hover:shadow-lg transition-all group relative overflow-hidden`}
                   >
                     {/* Triage indicator background */}
                     <div className={`absolute top-0 right-0 w-24 h-24 ${triageInfo.bgLight} opacity-50 rounded-bl-full`}></div>
@@ -949,7 +1125,7 @@ const HospitalManagementSystem = () => {
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <p className="font-bold text-gray-800 group-hover:text-purple-600 transition text-lg">{patient.name}</p>
+                            <p className="font-bold text-gray-800 text-lg">{patient.name}</p>
                             <span className={`text-2xl ${triageInfo.icon === '🔴' ? 'animate-pulse' : ''}`}>
                               {triageInfo.icon}
                             </span>
@@ -976,6 +1152,33 @@ const HospitalManagementSystem = () => {
                         </div>
                         <p className="text-xs text-gray-600 mt-0.5">{triageInfo.description}</p>
                       </div>
+                      
+                      {/* Notas evolutivas counter */}
+                      {patientNotesCount > 0 && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="flex items-center gap-1 px-3 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs">
+                            <FileText size={14} className="text-blue-600" />
+                            <span className="font-semibold text-blue-700">
+                              {patientNotesCount} {patientNotesCount === 1 ? 'nota' : 'notas'}
+                            </span>
+                            {recentNotesCount > 0 && (
+                              <span className="ml-1 px-1.5 py-0.5 bg-green-500 text-white rounded text-xs font-bold">
+                                {recentNotesCount} HOY
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              viewPatientDetails(patient);
+                            }}
+                            className="flex-1 px-3 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1"
+                          >
+                            <FileText size={14} />
+                            Ver Historial
+                          </button>
+                        </div>
+                      )}
                       
                       {patient.assignment_notes && (
                         <p className="text-xs text-gray-500 mt-2 italic bg-gray-50 p-2 rounded">📋 {patient.assignment_notes}</p>
@@ -1011,6 +1214,22 @@ const HospitalManagementSystem = () => {
                 <option key={p.id} value={p.id}>{p.name} - Hab. {p.room}</option>
               ))}
             </select>
+            
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+              <label className="block text-xs font-semibold text-blue-700 mb-2 flex items-center">
+                <Clock className="mr-1" size={14} />
+                Fecha y Hora de Toma
+              </label>
+              <input
+                type="datetime-local"
+                className="w-full px-4 py-2.5 bg-white border-2 border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
+                value={newVitalSigns.dateTime}
+                onChange={(e) => setNewVitalSigns(prev => ({...prev, dateTime: e.target.value}))}
+                max={new Date().toISOString().slice(0, 16)}
+              />
+              <p className="text-xs text-blue-600 mt-1">⚡ Si no especifica, se usará la hora actual</p>
+            </div>
+            
             <input
               key="vital-temp"
               type="text"
