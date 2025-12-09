@@ -131,8 +131,12 @@ async function createTables() {
       dose TEXT NOT NULL,
       frequency TEXT NOT NULL,
       start_date TEXT NOT NULL,
+      end_date TEXT,
       applied_by TEXT NOT NULL,
       last_application TEXT NOT NULL,
+      responsible_doctor TEXT,
+      administration_times TEXT,
+      status TEXT DEFAULT 'Activo',
       notes TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (patient_id) REFERENCES patients(id)
@@ -684,9 +688,23 @@ export async function getTreatmentsByPatientId(patientId) {
 export async function createTreatment(treatment) {
   const db = await initDatabase();
   const result = await db.execute(
-    `INSERT INTO treatments (patient_id, medication, dose, frequency, start_date, applied_by, last_application, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [treatment.patientId, treatment.medication, treatment.dose, treatment.frequency, treatment.startDate, treatment.appliedBy, treatment.lastApplication, treatment.notes]
+    `INSERT INTO treatments (patient_id, medication, dose, frequency, start_date, end_date, applied_by, last_application, 
+     responsible_doctor, administration_times, status, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      treatment.patientId, 
+      treatment.medication, 
+      treatment.dose, 
+      treatment.frequency, 
+      treatment.startDate, 
+      treatment.endDate || null,
+      treatment.appliedBy, 
+      treatment.lastApplication, 
+      treatment.responsibleDoctor || null,
+      treatment.administrationTimes || null,
+      treatment.status || 'Activo',
+      treatment.notes || null
+    ]
   );
   return result.lastInsertId;
 }
@@ -1594,6 +1612,90 @@ export async function initializeSampleNurseData() {
     }
     
     console.log(`✓ Assigned ${patients.length} patients to nurse for today's shift`);
+    
+    // Add sample treatments with schedules and responsible doctors
+    const sampleTreatments = [
+      {
+        patientId: patients[0].id,
+        medication: 'Paracetamol',
+        dose: '500mg',
+        frequency: 'Cada 8 horas',
+        startDate: todayDate,
+        appliedBy: 'Enfermero Juan Pérez',
+        lastApplication: todayDate + ' 08:00',
+        responsibleDoctor: 'Dr. Carlos Ramírez',
+        administrationTimes: '08:00,16:00,00:00',
+        status: 'Activo',
+        notes: 'Para control de fiebre y dolor'
+      },
+      {
+        patientId: patients[0].id,
+        medication: 'Omeprazol',
+        dose: '20mg',
+        frequency: 'Cada 24 horas',
+        startDate: todayDate,
+        appliedBy: 'Enfermero Juan Pérez',
+        lastApplication: todayDate + ' 08:00',
+        responsibleDoctor: 'Dr. Carlos Ramírez',
+        administrationTimes: '08:00',
+        status: 'Activo',
+        notes: 'Protector gástrico, tomar en ayunas'
+      }
+    ];
+    
+    if (patients.length > 1) {
+      sampleTreatments.push({
+        patientId: patients[1].id,
+        medication: 'Losartán',
+        dose: '50mg',
+        frequency: 'Cada 12 horas',
+        startDate: todayDate,
+        appliedBy: 'Enfermero Juan Pérez',
+        lastApplication: todayDate + ' 08:00',
+        responsibleDoctor: 'Dra. María Torres',
+        administrationTimes: '08:00,20:00',
+        status: 'Activo',
+        notes: 'Para control de presión arterial'
+      });
+      
+      sampleTreatments.push({
+        patientId: patients[1].id,
+        medication: 'Atorvastatina',
+        dose: '10mg',
+        frequency: 'Cada 24 horas',
+        startDate: todayDate,
+        appliedBy: 'Enfermero Juan Pérez',
+        lastApplication: todayDate + ' 20:00',
+        responsibleDoctor: 'Dra. María Torres',
+        administrationTimes: '20:00',
+        status: 'Activo',
+        notes: 'Para control de colesterol, tomar por la noche'
+      });
+    }
+    
+    // Insert treatments
+    for (const treatment of sampleTreatments) {
+      await db.execute(
+        `INSERT INTO treatments (patient_id, medication, dose, frequency, start_date, applied_by, last_application, 
+         responsible_doctor, administration_times, status, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          treatment.patientId,
+          treatment.medication,
+          treatment.dose,
+          treatment.frequency,
+          treatment.startDate,
+          treatment.appliedBy,
+          treatment.lastApplication,
+          treatment.responsibleDoctor,
+          treatment.administrationTimes,
+          treatment.status,
+          treatment.notes
+        ]
+      );
+    }
+    
+    console.log(`✓ Created ${sampleTreatments.length} sample treatments with schedules`);
     
   } catch (error) {
     console.error('Error initializing sample nurse data:', error);

@@ -768,24 +768,128 @@ const HospitalManagementSystem = () => {
         </div>
 
         <div className="bg-white p-4 md:p-6 rounded-lg shadow-md">
-          <h3 className="text-lg md:text-xl font-bold mb-4 flex items-center">
-            <Pill className="mr-2 text-green-600" size={20} />
-            Tratamientos Activos
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg md:text-xl font-bold flex items-center">
+              <Pill className="mr-2 text-green-600" size={20} />
+              Tratamientos Asignados
+            </h3>
+            <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+              {patientTreatments.length} {patientTreatments.length === 1 ? 'tratamiento' : 'tratamientos'}
+            </span>
+          </div>
           {patientTreatments.length > 0 ? (
-            <div className="space-y-3">
-              {patientTreatments.map(trt => (
-                <div key={trt.id} className="border border-gray-200 p-3 md:p-4 rounded-lg">
-                  <p className="font-semibold text-sm md:text-base text-gray-800">{trt.medication} - {trt.dose}</p>
-                  <p className="text-xs md:text-sm text-gray-600">Frecuencia: {trt.frequency}</p>
-                  {trt.notes && <p className="text-xs md:text-sm text-gray-600">Notas: {trt.notes}</p>}
-                  <p className="text-xs text-gray-500 mt-2">Aplicado por: {trt.appliedBy}</p>
-                  <p className="text-xs text-gray-500">Última aplicación: {trt.lastApplication}</p>
-                </div>
-              ))}
+            <div className="space-y-4">
+              {patientTreatments.map(trt => {
+                const startDate = new Date(trt.startDate);
+                const isActive = trt.status === 'Activo' || !trt.status;
+                const administrationTimes = trt.administrationTimes ? trt.administrationTimes.split(',') : [];
+                
+                return (
+                  <div key={trt.id} className="border-l-4 border-green-400 bg-green-50 rounded-xl p-4 hover:shadow-md transition-all">
+                    {/* Encabezado del tratamiento */}
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="bg-green-500 p-2 rounded-lg">
+                          <Pill className="text-white" size={20} />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-lg text-gray-800">{trt.medication}</h4>
+                          <p className="text-sm text-gray-600">Dosis: <span className="font-semibold text-green-700">{trt.dose}</span></p>
+                        </div>
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                        isActive ? 'bg-green-500 text-white' : 'bg-gray-400 text-white'
+                      }`}>
+                        {trt.status || 'Activo'}
+                      </span>
+                    </div>
+                    
+                    {/* Información del tratamiento */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                      <div className="bg-white p-3 rounded-lg border border-green-200">
+                        <p className="text-xs text-gray-600 mb-1 flex items-center">
+                          <Clock size={14} className="mr-1 text-green-600" />
+                          Frecuencia
+                        </p>
+                        <p className="font-semibold text-sm text-gray-800">{trt.frequency}</p>
+                      </div>
+                      
+                      {trt.responsibleDoctor && (
+                        <div className="bg-white p-3 rounded-lg border border-green-200">
+                          <p className="text-xs text-gray-600 mb-1 flex items-center">
+                            <User size={14} className="mr-1 text-green-600" />
+                            Médico Responsable
+                          </p>
+                          <p className="font-semibold text-sm text-gray-800">{trt.responsibleDoctor}</p>
+                        </div>
+                      )}
+                      
+                      <div className="bg-white p-3 rounded-lg border border-green-200">
+                        <p className="text-xs text-gray-600 mb-1 flex items-center">
+                          📅 Fecha de Inicio
+                        </p>
+                        <p className="font-semibold text-sm text-gray-800">
+                          {startDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        </p>
+                      </div>
+                      
+                      <div className="bg-white p-3 rounded-lg border border-green-200">
+                        <p className="text-xs text-gray-600 mb-1 flex items-center">
+                          ⏰ Última Aplicación
+                        </p>
+                        <p className="font-semibold text-sm text-gray-800">
+                          {new Date(trt.lastApplication).toLocaleString('es-ES', { 
+                            day: 'numeric', 
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Horarios de administración */}
+                    {administrationTimes.length > 0 && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+                        <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center">
+                          <Clock size={14} className="mr-1" />
+                          Horarios de Administración
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {administrationTimes.map((time, idx) => (
+                            <span key={idx} className="px-3 py-1 bg-blue-500 text-white rounded-full text-sm font-semibold">
+                              🕐 {time.trim()}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Notas */}
+                    {trt.notes && (
+                      <div className="bg-white border border-green-200 rounded-lg p-3 mb-3">
+                        <p className="text-xs font-semibold text-green-700 mb-1">📝 Notas:</p>
+                        <p className="text-sm text-gray-700 italic">{trt.notes}</p>
+                      </div>
+                    )}
+                    
+                    {/* Footer */}
+                    <div className="flex items-center justify-between pt-3 border-t border-green-200">
+                      <p className="text-xs text-gray-600">
+                        👨‍⚕️ Aplicado por: <span className="font-semibold">{trt.appliedBy}</span>
+                      </p>
+                      <p className="text-xs text-gray-400">#{trt.id}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
-            <p className="text-sm text-gray-500">No hay tratamientos activos</p>
+            <div className="text-center py-8 text-gray-500">
+              <Pill className="mx-auto mb-3 text-gray-400" size={48} />
+              <p className="text-sm">No hay tratamientos asignados</p>
+              <p className="text-xs mt-2">Los tratamientos aparecerán aquí cuando sean prescritos</p>
+            </div>
           )}
         </div>
 
