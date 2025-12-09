@@ -279,17 +279,27 @@ const HospitalManagementSystem = () => {
           patient_id: parseInt(newNurseNote.patientId),
           date: timestamp,
           note: newNurseNote.note,
+          note_type: newNurseNote.noteType || 'evolutiva',
           nurse_name: currentUser.name
         };
         await addNurseNoteDB(newNote);
-        setNewNurseNote({ patientId: '', note: '' });
-        alert('Nota de enfermería agregada exitosamente');
+        setNewNurseNote({ patientId: '', note: '', noteType: 'evolutiva' });
+        
+        // Success message based on note type
+        const noteTypeNames = {
+          'evolutiva': 'Nota Evolutiva',
+          'observacion': 'Observación',
+          'incidente': 'Reporte de Incidente',
+          'mejora': 'Nota de Mejoría',
+          'deterioro': 'Alerta de Deterioro'
+        };
+        alert(`${noteTypeNames[newNurseNote.noteType] || 'Nota'} registrada exitosamente`);
       } catch (error) {
         console.error('Error adding nurse note:', error);
-        alert('Error al agregar nota. Por favor intente nuevamente.');
+        alert('Error al registrar nota. Por favor intente nuevamente.');
       }
     } else {
-      alert('Por favor complete todos los campos');
+      alert('Por favor seleccione un paciente y escriba la nota');
     }
   };
 
@@ -663,7 +673,7 @@ const HospitalManagementSystem = () => {
     // Move nurse-specific state here to prevent parent re-renders
     const [newTreatment, setNewTreatment] = useState({ patientId: '', medication: '', dose: '', frequency: '', notes: '' });
     const [newVitalSigns, setNewVitalSigns] = useState({ patientId: '', temperature: '', bloodPressure: '', heartRate: '', respiratoryRate: '' });
-    const [newNurseNote, setNewNurseNote] = useState({ patientId: '', note: '' });
+    const [newNurseNote, setNewNurseNote] = useState({ patientId: '', note: '', noteType: 'evolutiva' });
     const [assignedPatients, setAssignedPatients] = useState([]);
     const [nurseShifts, setNurseShifts] = useState([]);
     const [currentShift, setCurrentShift] = useState(null);
@@ -1102,7 +1112,7 @@ const HospitalManagementSystem = () => {
         <div className="glass-effect p-6 rounded-2xl shadow-lg border border-gray-200/50">
           <h3 className="text-xl font-bold mb-5 flex items-center bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
             <FileText className="mr-2 text-blue-600" size={24} />
-            Agregar Nota de Enfermería
+            Registrar Nota Evolutiva
           </h3>
           <div className="space-y-4">
             <select
@@ -1110,27 +1120,176 @@ const HospitalManagementSystem = () => {
               value={newNurseNote.patientId}
               onChange={(e) => setNewNurseNote(prev => ({...prev, patientId: e.target.value}))}
             >
-              <option value="">Seleccionar paciente</option>
-              {patients.map(p => (
+              <option value="">Seleccionar paciente asignado</option>
+              {assignedPatients.map(p => (
                 <option key={p.id} value={p.id}>{p.name} - Hab. {p.room}</option>
               ))}
             </select>
+            
+            {/* Tipo de nota */}
+            <select
+              className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md"
+              value={newNurseNote.noteType || 'evolutiva'}
+              onChange={(e) => setNewNurseNote(prev => ({...prev, noteType: e.target.value}))}
+            >
+              <option value="evolutiva">📋 Nota Evolutiva</option>
+              <option value="observacion">👁️ Observación</option>
+              <option value="incidente">⚠️ Incidente</option>
+              <option value="mejora">✅ Mejoría</option>
+              <option value="deterioro">🔴 Deterioro</option>
+            </select>
+            
+            {/* Plantillas rápidas */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setNewNurseNote(prev => ({...prev, note: (prev.note || '') + 'Paciente estable, sin cambios significativos. '}))}
+                className="px-3 py-2 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition text-xs text-left"
+              >
+                💚 Estable
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewNurseNote(prev => ({...prev, note: (prev.note || '') + 'Signos vitales dentro de rango normal. '}))}
+                className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition text-xs text-left"
+              >
+                💙 Vitales normales
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewNurseNote(prev => ({...prev, note: (prev.note || '') + 'Requiere monitoreo continuo. '}))}
+                className="px-3 py-2 bg-yellow-50 border border-yellow-200 rounded-lg hover:bg-yellow-100 transition text-xs text-left"
+              >
+                ⚠️ Monitoreo
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewNurseNote(prev => ({...prev, note: (prev.note || '') + 'Paciente responde bien al tratamiento. '}))}
+                className="px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition text-xs text-left"
+              >
+                ✅ Responde bien
+              </button>
+            </div>
+            
             <textarea
-              placeholder="📋 Escriba su nota de enfermería aquí..."
+              placeholder="📋 Escriba la nota evolutiva del paciente...
+
+Ejemplo:
+- Estado general del paciente
+- Cambios observados desde la última revisión
+- Respuesta a medicamentos o tratamientos
+- Síntomas reportados
+- Acciones tomadas"
               className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all shadow-sm hover:shadow-md resize-none"
-              rows="6"
+              rows="8"
               value={newNurseNote.note}
               onChange={(e) => setNewNurseNote(prev => ({...prev, note: e.target.value}))}
             />
-            <button
-              onClick={addNurseNote}
-              className="w-full py-3.5 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl hover:from-blue-600 hover:to-cyan-600 transition-all font-bold shadow-lg hover:shadow-xl flex items-center justify-center"
-            >
-              <FileText className="mr-2" size={20} />
-              Agregar Nota
-            </button>
+            
+            <div className="flex gap-2">
+              <button
+                onClick={addNurseNote}
+                className="flex-1 py-3.5 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl hover:from-blue-600 hover:to-cyan-600 transition-all font-bold shadow-lg hover:shadow-xl flex items-center justify-center"
+              >
+                <FileText className="mr-2" size={20} />
+                Registrar Nota Evolutiva
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewNurseNote({ patientId: '', note: '', noteType: 'evolutiva' })}
+                className="px-6 py-3.5 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-all font-semibold"
+              >
+                Limpiar
+              </button>
+            </div>
           </div>
         </div>
+      </div>
+
+      {/* Notas Evolutivas del Turno */}
+      <div className="glass-effect p-6 rounded-2xl shadow-lg border border-gray-200/50">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-xl font-bold flex items-center bg-gradient-to-r from-indigo-600 to-blue-600 bg-clip-text text-transparent">
+            <FileText className="mr-2 text-indigo-600" size={24} />
+            Notas Evolutivas del Turno
+          </h3>
+          <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm font-semibold">
+            {nurseNotes.filter(note => {
+              const noteDate = new Date(note.date);
+              const today = new Date();
+              return noteDate.toDateString() === today.toDateString();
+            }).length} notas hoy
+          </span>
+        </div>
+        
+        {nurseNotes.length > 0 ? (
+          <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+            {nurseNotes.slice().reverse().map((note, index) => {
+              const patient = assignedPatients.find(p => p.id === note.patientId) || patients.find(p => p.id === note.patientId);
+              const noteDate = new Date(note.date);
+              const isToday = noteDate.toDateString() === new Date().toDateString();
+              const noteTypeIcons = {
+                'evolutiva': '📋',
+                'observacion': '👁️',
+                'incidente': '⚠️',
+                'mejora': '✅',
+                'deterioro': '🔴'
+              };
+              const noteTypeColors = {
+                'evolutiva': 'border-blue-200 bg-blue-50',
+                'observacion': 'border-purple-200 bg-purple-50',
+                'incidente': 'border-orange-200 bg-orange-50',
+                'mejora': 'border-green-200 bg-green-50',
+                'deterioro': 'border-red-200 bg-red-50'
+              };
+              
+              return (
+                <div 
+                  key={note.id || index} 
+                  className={`border-l-4 ${noteTypeColors[note.noteType || 'evolutiva'] || 'border-blue-200 bg-blue-50'} p-4 rounded-xl hover:shadow-md transition-all`}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">{noteTypeIcons[note.noteType || 'evolutiva'] || '📋'}</span>
+                      <div>
+                        <p className="font-bold text-gray-800">
+                          {patient ? patient.name : 'Paciente desconocido'}
+                          {isToday && <span className="ml-2 text-xs bg-green-500 text-white px-2 py-0.5 rounded-full">HOY</span>}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          🏥 Habitación {patient?.room} • 
+                          <span className="ml-1">📅 {noteDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2 py-1 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 uppercase">
+                      {note.noteType || 'Evolutiva'}
+                    </span>
+                  </div>
+                  
+                  <p className="text-sm text-gray-700 leading-relaxed mb-2 pl-8 whitespace-pre-wrap">
+                    {note.note}
+                  </p>
+                  
+                  <div className="flex items-center justify-between pl-8 pt-2 border-t border-gray-200">
+                    <p className="text-xs text-gray-500">
+                      👨‍⚕️ Registrado por: <span className="font-semibold">{note.nurseName}</span>
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      #{note.id}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            <FileText className="mx-auto mb-3 text-gray-400" size={48} />
+            <p>No hay notas evolutivas registradas</p>
+            <p className="text-sm mt-2">Registre la primera nota del turno arriba</p>
+          </div>
+        )}
       </div>
 
       <div className="glass-effect p-6 rounded-2xl shadow-lg border border-gray-200/50">

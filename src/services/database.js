@@ -165,6 +165,7 @@ async function createTables() {
       patient_id INTEGER NOT NULL,
       date TEXT NOT NULL,
       note TEXT NOT NULL,
+      note_type TEXT DEFAULT 'evolutiva',
       nurse_name TEXT NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (patient_id) REFERENCES patients(id)
@@ -744,9 +745,9 @@ export async function getNurseNotesByPatientId(patientId) {
 export async function createNurseNote(note) {
   const db = await initDatabase();
   const result = await db.execute(
-    `INSERT INTO nurse_notes (patient_id, date, note, nurse_name)
-     VALUES (?, ?, ?, ?)`,
-    [note.patientId, note.date, note.note, note.nurseName]
+    `INSERT INTO nurse_notes (patient_id, date, note, note_type, nurse_name)
+     VALUES (?, ?, ?, ?, ?)`,
+    [note.patientId, note.date, note.note, note.noteType || 'evolutiva', note.nurseName]
   );
   return result.lastInsertId;
 }
