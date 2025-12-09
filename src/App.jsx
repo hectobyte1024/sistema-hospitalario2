@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, Clock, User, FileText, Activity, Users, Pill, TestTube, LogOut, Heart, Stethoscope, Brain, Eye, Bone, AlertCircle, CheckCircle, Menu, X, Phone, Moon, Sun, Settings, Package, Hospital, Scissors, MessageSquare, BarChart3, Scan } from 'lucide-react';
+import { Calendar, Clock, User, FileText, Activity, Users, Pill, TestTube, LogOut, Heart, Stethoscope, Brain, Eye, Bone, AlertCircle, CheckCircle, Menu, X, Phone, Moon, Sun, Settings, Package, Hospital, Scissors, MessageSquare, BarChart3, Scan, Keyboard as KeyboardIcon } from 'lucide-react';
 import { usePatients, useAppointments, useTreatments, useVitalSigns, useNurseNotes, usePatientTransfers, useNonPharmaTreatments } from './hooks/useDatabase';
 import { logout as authLogout } from './services/auth';
 import LoginForm from './components/LoginForm';
@@ -20,6 +20,10 @@ import ReportsAnalytics from './components/ReportsAnalytics';
 import LabManagement from './components/LabManagement';
 import RadiologyManagement from './components/RadiologyManagement';
 import AdvancedDashboard from './components/AdvancedDashboard';
+import GuidedTour from './components/GuidedTour';
+import KeyboardShortcuts, { useKeyboardShortcuts } from './components/KeyboardShortcuts';
+import Tooltip, { HelpTooltip } from './components/Tooltip';
+import Breadcrumbs from './components/Breadcrumbs';
 
 // Triage helper function - Escala institucional de triaje
 const getTriageInfo = (level) => {
@@ -85,6 +89,8 @@ const HospitalManagementSystem = () => {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   
   // Load dark mode preference
   useEffect(() => {
@@ -106,6 +112,23 @@ const HospitalManagementSystem = () => {
       document.documentElement.classList.remove('dark');
     }
   };
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    'ctrl+f': (e) => {
+      e.preventDefault();
+      document.getElementById('search-input')?.focus();
+    },
+    'f1': (e) => {
+      e.preventDefault();
+      setShowKeyboardShortcuts(true);
+    },
+    'escape': () => {
+      setShowKeyboardShortcuts(false);
+    },
+    'alt+1': () => setCurrentView('dashboard'),
+    'alt+h': () => setCurrentView('home'),
+  });
 
   // Handle search results
   const handleSearchResult = (result) => {
@@ -1190,6 +1213,15 @@ const HospitalManagementSystem = () => {
               Hospital San Rafael
             </h1>
           </div>
+          <Tooltip text="Atajos de teclado (F1)" position="left">
+            <button
+              onClick={() => setShowKeyboardShortcuts(true)}
+              className="p-2 hover:bg-white/20 rounded-lg transition-colors text-white"
+              aria-label="Ver atajos de teclado"
+            >
+              <KeyboardIcon size={24} />
+            </button>
+          </Tooltip>
         </div>
       </nav>
 
@@ -3018,10 +3050,17 @@ Ejemplo:
             />
           )}
           {currentView === 'dashboard' && currentUser && (
-            currentUser.type === 'admin' || currentUser.role === 'admin' ? <AdvancedDashboard currentUser={currentUser} /> :
-            currentUser.role === 'doctor' ? <DoctorDashboard currentUser={currentUser} /> :
-            currentUser.type === 'nurse' ? <NurseDashboard /> : 
-            <PatientDashboard />
+            <>
+              {/* Tour guiado para nuevos usuarios */}
+              <GuidedTour 
+                userRole={currentUser.role || currentUser.type} 
+                onComplete={() => console.log('Tour completado')}
+              />
+              {currentUser.type === 'admin' || currentUser.role === 'admin' ? <AdvancedDashboard currentUser={currentUser} /> :
+              currentUser.role === 'doctor' ? <DoctorDashboard currentUser={currentUser} /> :
+              currentUser.type === 'nurse' ? <NurseDashboard /> : 
+              <PatientDashboard />}
+            </>
           )}
           {currentView === 'profile' && currentUser && (
             <UserProfile 
@@ -3041,6 +3080,12 @@ Ejemplo:
           {currentView === 'patientDetails' && currentUser && currentUser.type === 'nurse' && <PatientDetailsView />}
         </ErrorBoundary>
       </div>
+
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcuts 
+        isOpen={showKeyboardShortcuts}
+        onClose={() => setShowKeyboardShortcuts(false)}
+      />
     </div>
   );
 };
