@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Calendar, Clock, User, FileText, Activity, Users, Pill, TestTube, LogOut, Heart, Stethoscope, Brain, Eye, Bone, AlertCircle, CheckCircle, Menu, X, Phone, Moon, Sun, Settings, Package, Hospital, Scissors, MessageSquare, BarChart3, Scan } from 'lucide-react';
-import { usePatients, useAppointments, useTreatments, useVitalSigns, useNurseNotes } from './hooks/useDatabase';
+import { usePatients, useAppointments, useTreatments, useVitalSigns, useNurseNotes, usePatientTransfers } from './hooks/useDatabase';
 import { logout as authLogout } from './services/auth';
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
@@ -145,6 +145,7 @@ const HospitalManagementSystem = () => {
     { id: 2, patientId: 2, date: '2025-10-27', diagnosis: 'Accidente cerebrovascular', treatment: 'Tratamiento de emergencia', notes: 'Ingreso por urgencias, requiere monitoreo constante', doctor: 'Dra. Torres' }
   ]);
 
+  const [patientTransfers, setPatientTransfers] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
 
   const specialties = [
@@ -334,6 +335,9 @@ const HospitalManagementSystem = () => {
     const patientAppointments = appointments.filter(a => a.patientId === selectedPatient.id);
     const patientVitals = vitalSigns.filter(v => v.patientId === selectedPatient.id);
     const patientNotes = nurseNotes.filter(n => n.patientId === selectedPatient.id);
+    
+    // Load patient transfers
+    const { transfers: patientTransfersList } = usePatientTransfers(selectedPatient.id);
 
     return (
       <div className="space-y-4 md:space-y-6">
@@ -372,10 +376,6 @@ const HospitalManagementSystem = () => {
               <p className="font-semibold text-base md:text-lg">{selectedPatient.age} años</p>
             </div>
             <div>
-              <p className="text-gray-600 text-xs md:text-sm">Habitación</p>
-              <p className="font-semibold text-base md:text-lg">{selectedPatient.room}</p>
-            </div>
-            <div>
               <p className="text-gray-600 text-xs md:text-sm">Tipo de Sangre</p>
               <p className="font-semibold text-base md:text-lg">{selectedPatient.bloodType}</p>
             </div>
@@ -395,6 +395,158 @@ const HospitalManagementSystem = () => {
             </div>
           </div>
         </div>
+
+        {/* Ubicación Actual del Paciente */}
+        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-4 md:p-6 rounded-lg shadow-md border-2 border-blue-200">
+          <div className="flex items-center mb-4">
+            <div className="bg-blue-500 p-3 rounded-full mr-3">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <h3 className="text-xl md:text-2xl font-bold text-blue-900">Ubicación Actual</h3>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
+              <p className="text-xs text-blue-600 font-semibold mb-1 flex items-center">
+                <span className="text-lg mr-1">🏢</span> PISO
+              </p>
+              <p className="text-2xl font-bold text-blue-900">{selectedPatient.floor || '1'}</p>
+            </div>
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
+              <p className="text-xs text-blue-600 font-semibold mb-1 flex items-center">
+                <span className="text-lg mr-1">🏥</span> ÁREA
+              </p>
+              <p className="text-lg font-bold text-blue-900">{selectedPatient.area || 'General'}</p>
+            </div>
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
+              <p className="text-xs text-blue-600 font-semibold mb-1 flex items-center">
+                <span className="text-lg mr-1">🚪</span> HABITACIÓN
+              </p>
+              <p className="text-2xl font-bold text-blue-900">{selectedPatient.room}</p>
+            </div>
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100">
+              <p className="text-xs text-blue-600 font-semibold mb-1 flex items-center">
+                <span className="text-lg mr-1">🛏️</span> CAMA
+              </p>
+              <p className="text-2xl font-bold text-blue-900">{selectedPatient.bed || 'A'}</p>
+            </div>
+          </div>
+          
+          <div className="mt-4 bg-blue-100 border border-blue-200 rounded-lg p-3">
+            <p className="text-sm font-semibold text-blue-900">
+              📍 Ubicación Completa: Piso {selectedPatient.floor || '1'} • {selectedPatient.area || 'General'} • Hab. {selectedPatient.room} • Cama {selectedPatient.bed || 'A'}
+            </p>
+          </div>
+        </div>
+
+        {/* Historial de Traslados */}
+        {patientTransfersList && patientTransfersList.length > 0 && (
+          <div className="bg-white p-4 md:p-6 rounded-lg shadow-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg md:text-xl font-bold flex items-center">
+                <svg className="w-5 h-5 mr-2 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+                Historial de Traslados
+              </h3>
+              <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-semibold">
+                {patientTransfersList.length} {patientTransfersList.length === 1 ? 'traslado' : 'traslados'}
+              </span>
+            </div>
+            
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+              {patientTransfersList.map((transfer, index) => {
+                const transferDate = new Date(transfer.transferDate + ' ' + transfer.transferTime);
+                const isRecent = (Date.now() - transferDate.getTime()) < 86400000; // Últimas 24 horas
+                
+                return (
+                  <div key={transfer.id || index} className="border-l-4 border-orange-300 bg-orange-50 rounded-xl p-4 hover:shadow-md transition-all">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                        </svg>
+                        <span className="font-bold text-gray-800 text-sm">
+                          📅 {transferDate.toLocaleDateString('es-ES', { 
+                            day: 'numeric', 
+                            month: 'long', 
+                            year: 'numeric' 
+                          })}
+                        </span>
+                        {isRecent && (
+                          <span className="text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full font-semibold">
+                            RECIENTE
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-sm font-bold text-orange-700">
+                        🕐 {transfer.transferTime}
+                      </span>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                      {/* Ubicación Anterior */}
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                        <p className="text-xs font-semibold text-red-700 mb-2 flex items-center">
+                          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                          Ubicación Anterior
+                        </p>
+                        <div className="space-y-1 text-sm">
+                          <p>🏢 Piso: <span className="font-semibold">{transfer.fromFloor || '-'}</span></p>
+                          <p>🏥 Área: <span className="font-semibold">{transfer.fromArea || '-'}</span></p>
+                          <p>🚪 Hab: <span className="font-semibold">{transfer.fromRoom || '-'}</span></p>
+                          <p>🛏️ Cama: <span className="font-semibold">{transfer.fromBed || '-'}</span></p>
+                        </div>
+                      </div>
+                      
+                      {/* Ubicación Nueva */}
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                        <p className="text-xs font-semibold text-green-700 mb-2 flex items-center">
+                          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          Nueva Ubicación
+                        </p>
+                        <div className="space-y-1 text-sm">
+                          <p>🏢 Piso: <span className="font-semibold">{transfer.toFloor}</span></p>
+                          <p>🏥 Área: <span className="font-semibold">{transfer.toArea}</span></p>
+                          <p>🚪 Hab: <span className="font-semibold">{transfer.toRoom}</span></p>
+                          <p>🛏️ Cama: <span className="font-semibold">{transfer.toBed}</span></p>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {transfer.reason && (
+                      <div className="bg-white border border-orange-200 rounded-lg p-3 mb-3">
+                        <p className="text-xs font-semibold text-orange-700 mb-1">📋 Motivo del traslado:</p>
+                        <p className="text-sm text-gray-700">{transfer.reason}</p>
+                      </div>
+                    )}
+                    
+                    {transfer.notes && (
+                      <div className="bg-white border border-orange-200 rounded-lg p-3 mb-3">
+                        <p className="text-xs font-semibold text-orange-700 mb-1">📝 Notas adicionales:</p>
+                        <p className="text-sm text-gray-700 italic">{transfer.notes}</p>
+                      </div>
+                    )}
+                    
+                    <div className="flex items-center justify-between pt-2 border-t border-orange-200">
+                      <p className="text-xs text-gray-600">
+                        👤 Trasladado por: <span className="font-semibold">{transfer.transferredBy}</span>
+                      </p>
+                      <p className="text-xs text-gray-400">#{transfer.id}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="bg-white p-4 md:p-6 rounded-lg shadow-md">
           <div className="flex items-center justify-between mb-4">

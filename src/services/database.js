@@ -35,6 +35,9 @@ async function createTables() {
         age INTEGER NOT NULL,
         gender TEXT,
         room TEXT NOT NULL,
+        floor TEXT DEFAULT '1',
+        area TEXT DEFAULT 'General',
+        bed TEXT DEFAULT 'A',
         condition TEXT NOT NULL,
         triage_level INTEGER DEFAULT 3,
         admission_date TEXT NOT NULL,
@@ -54,6 +57,30 @@ async function createTables() {
       )
     `);
     console.log('✓ Patients table created');
+
+    // Patient transfers table
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS patient_transfers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        patient_id INTEGER NOT NULL,
+        from_floor TEXT,
+        from_area TEXT,
+        from_room TEXT,
+        from_bed TEXT,
+        to_floor TEXT NOT NULL,
+        to_area TEXT NOT NULL,
+        to_room TEXT NOT NULL,
+        to_bed TEXT NOT NULL,
+        transfer_date TEXT NOT NULL,
+        transfer_time TEXT NOT NULL,
+        reason TEXT,
+        transferred_by TEXT NOT NULL,
+        notes TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (patient_id) REFERENCES patients(id)
+      )
+    `);
+    console.log('✓ Patient transfers table created');
 
     // Users table for authentication
     await db.execute(`
@@ -1682,6 +1709,85 @@ export async function deleteUser(id) {
     console.error('Error deleting user:', error);
     throw error;
   }
+}
+
+// ========== PATIENT TRANSFER OPERATIONS ==========
+
+// Get all transfers for a patient
+export async function getPatientTransfers(patientId) {
+  const db = await initDatabase();
+  return await db.select(
+    'SELECT * FROM patient_transfers WHERE patient_id = ? ORDER BY transfer_date DESC, transfer_time DESC',
+    [patientId]
+  );
+}
+
+// Get all recent transfers
+export async function getAllRecentTransfers(limit = 50) {
+  const db = await initDatabase();
+  return await db.select(
+    `SELECT pt.*, p.name as patient_name 
+     FROM patient_transfers pt 
+     JOIN patients p ON pt.patient_id = p.id 
+     ORDER BY pt.transfer_date DESC, pt.transfer_time DESC 
+     LIMIT ?`,
+    [limit]
+  );
+}
+
+// Create patient transfer
+export async function createPatientTransfer(transfer) {
+  const db = await initDatabase();
+  
+  // Get current patient location
+  const patient = await db.select('SELECT floor, area, room, bed FROM patients WHERE id = ?', [transfer.patientId]);
+  
+  const fromLocation = patient[0] || {};
+  
+  // Insert transfer record
+  const result = await db.execute(
+    `INSERT INTO patient_transfers 
+     (patient_id, from_floor, from_area, from_room, from_bed, to_floor, to_area, to_room, to_bed, 
+      transfer_date, transfer_time, reason, transferred_by, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      transfer.patientId,
+      fromLocation.floor || null,
+      fromLocation.area || null,
+      fromLocation.room || null,
+      fromLocation.bed || null,
+      transfer.toFloor,
+      transfer.toArea,
+      transfer.toRoom,
+      transfer.toBed,
+      transfer.transferDate,
+      transfer.transferTime,
+      transfer.reason || null,
+      transfer.transferredBy,
+      transfer.notes || null
+    ]
+  );
+  
+  // Update patient location
+  await db.execute(
+    `UPDATE patients 
+     SET floor = ?, area = ?, room = ?, bed = ?, updated_at = CURRENT_TIMESTAMP 
+     WHERE id = ?`,
+    [transfer.toFloor, transfer.toArea, transfer.toRoom, transfer.toBed, transfer.patientId]
+  );
+  
+  return result.lastInsertId;
+}
+
+// Update patient location (without creating transfer record)
+export async function updatePatientLocation(patientId, floor, area, room, bed) {
+  const db = await initDatabase();
+  await db.execute(
+    `UPDATE patients 
+     SET floor = ?, area = ?, room = ?, bed = ?, updated_at = CURRENT_TIMESTAMP 
+     WHERE id = ?`,
+    [floor, area, room, bed, patientId]
+  );
 }
 
 // Password reset token operations

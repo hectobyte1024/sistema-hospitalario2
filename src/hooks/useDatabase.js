@@ -232,3 +232,42 @@ export async function initializeApp() {
     throw err;
   }
 }
+
+// Hook to manage patient transfers
+export function usePatientTransfers(patientId = null) {
+  const [transfers, setTransfers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const loadTransfers = async () => {
+    try {
+      setLoading(true);
+      const data = patientId 
+        ? await db.getPatientTransfers(patientId)
+        : await db.getAllRecentTransfers();
+      setTransfers(data);
+      setError(null);
+    } catch (err) {
+      console.error('Error loading transfers:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTransfers();
+  }, [patientId]);
+
+  const addTransfer = async (transfer) => {
+    try {
+      await db.createPatientTransfer(transfer);
+      await loadTransfers();
+    } catch (err) {
+      console.error('Error adding transfer:', err);
+      throw err;
+    }
+  };
+
+  return { transfers, loading, error, addTransfer, refreshTransfers: loadTransfers };
+}
