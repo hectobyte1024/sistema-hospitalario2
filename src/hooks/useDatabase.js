@@ -208,12 +208,109 @@ export function useNurseNotes(patientId = null) {
 // Initialize database on app load
 export async function initializeApp() {
   try {
-    console.log('Initializing application...');
+    console.log('🚀 Initializing application...');
+    
+    // Initialize database
+    console.log('📦 Initializing database...');
     await db.initDatabase();
+    console.log('✅ Database initialized');
+    
+    // Create default users
+    console.log('👥 Creating default users...');
     await createDefaultUsers();
-    console.log('✓ Application initialized successfully');
+    console.log('✅ Default users created');
+    
+    // Verify database is working
+    console.log('🔍 Verifying database connection...');
+    const testUser = await db.getUserByUsername('admin');
+    console.log('✅ Database verification:', testUser ? 'Success - Admin user exists' : 'Warning - No admin user found');
+    
+    console.log('✅ Application initialized successfully');
   } catch (err) {
-    console.error('Failed to initialize app:', err);
+    console.error('❌ Failed to initialize app:', err);
+    console.error('❌ Error details:', err.message, err.stack);
     throw err;
   }
+}
+
+// Hook to manage patient transfers
+export function usePatientTransfers(patientId = null) {
+  const [transfers, setTransfers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const loadTransfers = async () => {
+    try {
+      setLoading(true);
+      const data = patientId 
+        ? await db.getPatientTransfers(patientId)
+        : await db.getAllRecentTransfers();
+      setTransfers(data);
+      setError(null);
+    } catch (err) {
+      console.error('Error loading transfers:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTransfers();
+  }, [patientId]);
+
+  const addTransfer = async (transfer) => {
+    try {
+      await db.createPatientTransfer(transfer);
+      await loadTransfers();
+    } catch (err) {
+      console.error('Error adding transfer:', err);
+      throw err;
+    }
+  };
+
+  return { transfers, loading, error, addTransfer, refreshTransfers: loadTransfers };
+}
+
+// Hook for non-pharmacological treatments
+export function useNonPharmaTreatments() {
+  const [nonPharmaTreatments, setNonPharmaTreatments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const loadNonPharmaTreatments = async () => {
+    try {
+      setLoading(true);
+      const data = await db.getAllNonPharmaTreatments();
+      setNonPharmaTreatments(data);
+      setError(null);
+    } catch (err) {
+      console.error('Error loading non-pharmacological treatments:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadNonPharmaTreatments();
+  }, []);
+
+  const addNonPharmaTreatment = async (treatment) => {
+    try {
+      await db.createNonPharmaTreatment(treatment);
+      await loadNonPharmaTreatments();
+    } catch (err) {
+      console.error('Error adding non-pharmacological treatment:', err);
+      throw err;
+    }
+  };
+
+  return { 
+    nonPharmaTreatments, 
+    loading, 
+    error, 
+    addNonPharmaTreatment,
+    refreshNonPharmaTreatments: loadNonPharmaTreatments 
+  };
 }

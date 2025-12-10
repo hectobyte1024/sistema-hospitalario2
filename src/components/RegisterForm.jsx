@@ -65,7 +65,7 @@ export default function RegisterForm({ onRegisterSuccess, onBackToHome }) {
 
   return (
     <div 
-      className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn overflow-y-auto"
+      className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-[9999] animate-fadeIn overflow-y-auto"
       onClick={onBackToHome}
     >
       <div 

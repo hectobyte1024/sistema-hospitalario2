@@ -35,7 +35,11 @@ async function createTables() {
         age INTEGER NOT NULL,
         gender TEXT,
         room TEXT NOT NULL,
+        floor TEXT DEFAULT '1',
+        area TEXT DEFAULT 'General',
+        bed TEXT DEFAULT 'A',
         condition TEXT NOT NULL,
+        triage_level INTEGER DEFAULT 3,
         admission_date TEXT NOT NULL,
         blood_type TEXT NOT NULL,
         allergies TEXT,
@@ -53,6 +57,30 @@ async function createTables() {
       )
     `);
     console.log('✓ Patients table created');
+
+    // Patient transfers table
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS patient_transfers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        patient_id INTEGER NOT NULL,
+        from_floor TEXT,
+        from_area TEXT,
+        from_room TEXT,
+        from_bed TEXT,
+        to_floor TEXT NOT NULL,
+        to_area TEXT NOT NULL,
+        to_room TEXT NOT NULL,
+        to_bed TEXT NOT NULL,
+        transfer_date TEXT NOT NULL,
+        transfer_time TEXT NOT NULL,
+        reason TEXT,
+        transferred_by TEXT NOT NULL,
+        notes TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (patient_id) REFERENCES patients(id)
+      )
+    `);
+    console.log('✓ Patient transfers table created');
 
     // Users table for authentication
     await db.execute(`
@@ -103,8 +131,12 @@ async function createTables() {
       dose TEXT NOT NULL,
       frequency TEXT NOT NULL,
       start_date TEXT NOT NULL,
+      end_date TEXT,
       applied_by TEXT NOT NULL,
       last_application TEXT NOT NULL,
+      responsible_doctor TEXT,
+      administration_times TEXT,
+      status TEXT DEFAULT 'Activo',
       notes TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (patient_id) REFERENCES patients(id)
@@ -164,11 +196,58 @@ async function createTables() {
       patient_id INTEGER NOT NULL,
       date TEXT NOT NULL,
       note TEXT NOT NULL,
+      note_type TEXT DEFAULT 'evolutiva',
       nurse_name TEXT NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (patient_id) REFERENCES patients(id)
     )
   `);
+
+  // Non-pharmacological treatments table (curaciones, nebulizaciones, fluidoterapia, etc.)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS non_pharmacological_treatments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL,
+      treatment_type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      application_date TEXT NOT NULL,
+      application_time TEXT,
+      duration TEXT,
+      performed_by TEXT NOT NULL,
+      materials_used TEXT,
+      observations TEXT,
+      outcome TEXT,
+      next_application TEXT,
+      status TEXT DEFAULT 'Completado',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (patient_id) REFERENCES patients(id)
+    )
+  `);
+  console.log('✓ Non-pharmacological treatments table created');
+
+  // Nursing shift reports table (hoja de enfermería digital)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS nursing_shift_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shift_date TEXT NOT NULL,
+      shift_type TEXT NOT NULL,
+      nurse_id INTEGER NOT NULL,
+      nurse_name TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT,
+      patients_assigned TEXT NOT NULL,
+      general_observations TEXT,
+      incidents TEXT,
+      pending_tasks TEXT,
+      handover_notes TEXT,
+      supervisor_name TEXT,
+      status TEXT DEFAULT 'En Curso',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (nurse_id) REFERENCES users(id)
+    )
+  `);
+  console.log('✓ Nursing shift reports table created');
 
   // Notifications table
   await db.execute(`
@@ -539,6 +618,25 @@ async function createTables() {
     )
   `);
 
+  // Nurse patient assignments table
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS nurse_patient_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nurse_id INTEGER NOT NULL,
+      patient_id INTEGER NOT NULL,
+      shift_id INTEGER,
+      assigned_date TEXT NOT NULL,
+      assignment_start TEXT NOT NULL,
+      assignment_end TEXT,
+      status TEXT DEFAULT 'Active',
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (nurse_id) REFERENCES users(id),
+      FOREIGN KEY (patient_id) REFERENCES patients(id),
+      FOREIGN KEY (shift_id) REFERENCES shifts(id)
+    )
+  `);
+
   console.log('✓ Database tables created successfully');
   } catch (error) {
     console.error('Error creating tables:', error);
@@ -636,9 +734,23 @@ export async function getTreatmentsByPatientId(patientId) {
 export async function createTreatment(treatment) {
   const db = await initDatabase();
   const result = await db.execute(
-    `INSERT INTO treatments (patient_id, medication, dose, frequency, start_date, applied_by, last_application, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [treatment.patientId, treatment.medication, treatment.dose, treatment.frequency, treatment.startDate, treatment.appliedBy, treatment.lastApplication, treatment.notes]
+    `INSERT INTO treatments (patient_id, medication, dose, frequency, start_date, end_date, applied_by, last_application, 
+     responsible_doctor, administration_times, status, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      treatment.patientId, 
+      treatment.medication, 
+      treatment.dose, 
+      treatment.frequency, 
+      treatment.startDate, 
+      treatment.endDate || null,
+      treatment.appliedBy, 
+      treatment.lastApplication, 
+      treatment.responsibleDoctor || null,
+      treatment.administrationTimes || null,
+      treatment.status || 'Activo',
+      treatment.notes || null
+    ]
   );
   return result.lastInsertId;
 }
@@ -724,11 +836,107 @@ export async function getNurseNotesByPatientId(patientId) {
 export async function createNurseNote(note) {
   const db = await initDatabase();
   const result = await db.execute(
-    `INSERT INTO nurse_notes (patient_id, date, note, nurse_name)
-     VALUES (?, ?, ?, ?)`,
-    [note.patientId, note.date, note.note, note.nurseName]
+    `INSERT INTO nurse_notes (patient_id, date, note, note_type, nurse_name)
+     VALUES (?, ?, ?, ?, ?)`,
+    [note.patientId, note.date, note.note, note.noteType || 'evolutiva', note.nurseName]
   );
   return result.lastInsertId;
+}
+
+// ========== NURSING SHIFT REPORT OPERATIONS ==========
+
+export async function createNursingShiftReport(report) {
+  const db = await initDatabase();
+  const result = await db.execute(
+    `INSERT INTO nursing_shift_reports 
+     (shift_date, shift_type, nurse_id, nurse_name, start_time, end_time, 
+      patients_assigned, general_observations, incidents, pending_tasks, 
+      handover_notes, supervisor_name, status) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      report.shiftDate,
+      report.shiftType,
+      report.nurseId,
+      report.nurseName,
+      report.startTime,
+      report.endTime || null,
+      report.patientsAssigned,
+      report.generalObservations || null,
+      report.incidents || null,
+      report.pendingTasks || null,
+      report.handoverNotes || null,
+      report.supervisorName || null,
+      report.status || 'En Curso'
+    ]
+  );
+  return result.lastInsertId;
+}
+
+export async function updateNursingShiftReport(reportId, updates) {
+  const db = await initDatabase();
+  const fields = [];
+  const values = [];
+  
+  if (updates.endTime !== undefined) {
+    fields.push('end_time = ?');
+    values.push(updates.endTime);
+  }
+  if (updates.generalObservations !== undefined) {
+    fields.push('general_observations = ?');
+    values.push(updates.generalObservations);
+  }
+  if (updates.incidents !== undefined) {
+    fields.push('incidents = ?');
+    values.push(updates.incidents);
+  }
+  if (updates.pendingTasks !== undefined) {
+    fields.push('pending_tasks = ?');
+    values.push(updates.pendingTasks);
+  }
+  if (updates.handoverNotes !== undefined) {
+    fields.push('handover_notes = ?');
+    values.push(updates.handoverNotes);
+  }
+  if (updates.supervisorName !== undefined) {
+    fields.push('supervisor_name = ?');
+    values.push(updates.supervisorName);
+  }
+  if (updates.status !== undefined) {
+    fields.push('status = ?');
+    values.push(updates.status);
+  }
+  
+  fields.push('updated_at = CURRENT_TIMESTAMP');
+  values.push(reportId);
+  
+  await db.execute(
+    `UPDATE nursing_shift_reports SET ${fields.join(', ')} WHERE id = ?`,
+    values
+  );
+}
+
+export async function getNursingShiftReportsByNurseId(nurseId) {
+  const db = await initDatabase();
+  return await db.select(
+    'SELECT * FROM nursing_shift_reports WHERE nurse_id = ? ORDER BY shift_date DESC, created_at DESC',
+    [nurseId]
+  );
+}
+
+export async function getNursingShiftReportByDateAndNurse(shiftDate, nurseId) {
+  const db = await initDatabase();
+  const reports = await db.select(
+    'SELECT * FROM nursing_shift_reports WHERE shift_date = ? AND nurse_id = ? ORDER BY created_at DESC LIMIT 1',
+    [shiftDate, nurseId]
+  );
+  return reports.length > 0 ? reports[0] : null;
+}
+
+export async function getAllNursingShiftReports() {
+  const db = await initDatabase();
+  return await db.select(
+    'SELECT * FROM nursing_shift_reports ORDER BY shift_date DESC, created_at DESC'
+  );
 }
 
 // ========== DATA SEEDING (for initial demo data) ==========
@@ -1131,6 +1339,95 @@ export async function deleteShift(id) {
   await db.execute('DELETE FROM shifts WHERE id = ?', [id]);
 }
 
+// ========== NURSE PATIENT ASSIGNMENT OPERATIONS ==========
+
+export async function getAssignedPatients(nurseId, date = null) {
+  const db = await initDatabase();
+  const today = date || new Date().toISOString().split('T')[0];
+  
+  // Get patients assigned to this nurse for today or active assignments
+  const query = `
+    SELECT 
+      p.*,
+      npa.id as assignment_id,
+      npa.assigned_date,
+      npa.assignment_start,
+      npa.assignment_end,
+      npa.notes as assignment_notes,
+      npa.status as assignment_status
+    FROM nurse_patient_assignments npa
+    JOIN patients p ON npa.patient_id = p.id
+    WHERE npa.nurse_id = ? 
+    AND npa.status = 'Active'
+    AND (npa.assigned_date = ? OR npa.assignment_end IS NULL OR npa.assignment_end >= ?)
+    ORDER BY p.condition DESC, p.room
+  `;
+  
+  return await db.select(query, [nurseId, today, today]);
+}
+
+export async function assignPatientToNurse(assignment) {
+  const db = await initDatabase();
+  const result = await db.execute(
+    `INSERT INTO nurse_patient_assignments (nurse_id, patient_id, shift_id, assigned_date, assignment_start, assignment_end, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [assignment.nurseId, assignment.patientId, assignment.shiftId, assignment.assignedDate, assignment.assignmentStart, assignment.assignmentEnd, assignment.notes]
+  );
+  return result.lastInsertId;
+}
+
+export async function updatePatientAssignment(id, assignment) {
+  const db = await initDatabase();
+  await db.execute(
+    `UPDATE nurse_patient_assignments 
+     SET assignment_end = ?, status = ?, notes = ?
+     WHERE id = ?`,
+    [assignment.assignmentEnd, assignment.status, assignment.notes, id]
+  );
+}
+
+export async function getNurseShiftsWithDetails(nurseId, startDate = null, endDate = null) {
+  const db = await initDatabase();
+  const today = new Date().toISOString().split('T')[0];
+  const start = startDate || today;
+  const end = endDate || today;
+  
+  const query = `
+    SELECT 
+      s.*,
+      u.name as nurse_name,
+      COUNT(npa.id) as assigned_patients_count
+    FROM shifts s
+    JOIN users u ON s.user_id = u.id
+    LEFT JOIN nurse_patient_assignments npa ON s.id = npa.shift_id AND npa.status = 'Active'
+    WHERE s.user_id = ? 
+    AND s.date BETWEEN ? AND ?
+    GROUP BY s.id
+    ORDER BY s.date DESC, s.start_time
+  `;
+  
+  return await db.select(query, [nurseId, start, end]);
+}
+
+export async function getActiveNurseShift(nurseId) {
+  const db = await initDatabase();
+  const today = new Date().toISOString().split('T')[0];
+  const now = new Date().toTimeString().split(' ')[0].substring(0, 5); // HH:MM format
+  
+  const query = `
+    SELECT * FROM shifts 
+    WHERE user_id = ? 
+    AND date = ?
+    AND start_time <= ?
+    AND end_time >= ?
+    AND status = 'Scheduled'
+    LIMIT 1
+  `;
+  
+  const results = await db.select(query, [nurseId, today, now, now]);
+  return results[0] || null;
+}
+
 // ========== AUDIT LOG OPERATIONS ==========
 
 export async function createAuditLog(log) {
@@ -1306,7 +1603,7 @@ export async function updateMealOrder(id, order) {
 export async function getUserByUsername(username) {
   try {
     const result = await db.select(
-      'SELECT * FROM users WHERE username = $1',
+      'SELECT * FROM users WHERE username = ?',
       [username]
     );
     return result.length > 0 ? result[0] : null;
@@ -1320,7 +1617,7 @@ export async function getUserByUsername(username) {
 export async function getUserByEmail(email) {
   try {
     const result = await db.select(
-      'SELECT * FROM users WHERE email = $1',
+      'SELECT * FROM users WHERE email = ?',
       [email]
     );
     return result.length > 0 ? result[0] : null;
@@ -1330,11 +1627,25 @@ export async function getUserByEmail(email) {
   }
 }
 
+// Get nurse by license number (cédula profesional)
+export async function getUserByLicenseNumber(licenseNumber) {
+  try {
+    const result = await db.select(
+      "SELECT * FROM users WHERE license_number = ? AND role = 'nurse'",
+      [licenseNumber]
+    );
+    return result.length > 0 ? result[0] : null;
+  } catch (error) {
+    console.error('Error getting user by license number:', error);
+    throw error;
+  }
+}
+
 // Get user by ID
 export async function getUserById(id) {
   try {
     const result = await db.select(
-      'SELECT id, username, role, name, email, phone, department, specialization, license_number, is_active, last_login, created_at FROM users WHERE id = $1',
+      'SELECT id, username, role, name, email, phone, department, specialization, license_number, is_active, last_login, created_at FROM users WHERE id = ?',
       [id]
     );
     return result.length > 0 ? result[0] : null;
@@ -1344,11 +1655,214 @@ export async function getUserById(id) {
   }
 }
 
+// Initialize sample nurse shifts and patient assignments
+export async function initializeSampleNurseData() {
+  try {
+    const db = await initDatabase();
+    
+    // Check if sample data already exists
+    const existingShifts = await db.select('SELECT COUNT(*) as count FROM shifts');
+    if (existingShifts[0].count > 0) {
+      console.log('Sample shifts already exist');
+      return;
+    }
+    
+    // Get nurse user (assuming enfermero user exists with ID from login)
+    const nurses = await db.select('SELECT id FROM users WHERE role = "nurse" OR username = "enfermero"');
+    if (nurses.length === 0) {
+      console.log('No nurse users found');
+      return;
+    }
+    
+    const nurseId = nurses[0].id;
+    const today = new Date();
+    
+    // Create shifts for this week
+    const shifts = [
+      // Yesterday
+      {
+        userId: nurseId,
+        date: new Date(today.getTime() - 86400000).toISOString().split('T')[0],
+        startTime: '07:00',
+        endTime: '15:00',
+        shiftType: 'Mañana',
+        department: 'Medicina General',
+        status: 'Completed',
+        notes: 'Turno completado sin incidentes'
+      },
+      // Today
+      {
+        userId: nurseId,
+        date: today.toISOString().split('T')[0],
+        startTime: '07:00',
+        endTime: '15:00',
+        shiftType: 'Mañana',
+        department: 'Medicina General',
+        status: 'Scheduled',
+        notes: 'Turno actual'
+      },
+      // Tomorrow
+      {
+        userId: nurseId,
+        date: new Date(today.getTime() + 86400000).toISOString().split('T')[0],
+        startTime: '15:00',
+        endTime: '23:00',
+        shiftType: 'Tarde',
+        department: 'Medicina General',
+        status: 'Scheduled',
+        notes: null
+      },
+      // Day after tomorrow
+      {
+        userId: nurseId,
+        date: new Date(today.getTime() + 172800000).toISOString().split('T')[0],
+        startTime: '23:00',
+        endTime: '07:00',
+        shiftType: 'Noche',
+        department: 'Medicina General',
+        status: 'Scheduled',
+        notes: 'Turno nocturno'
+      }
+    ];
+    
+    // Insert shifts
+    const shiftIds = [];
+    for (const shift of shifts) {
+      const result = await db.execute(
+        `INSERT INTO shifts (user_id, date, start_time, end_time, shift_type, department, status, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [shift.userId, shift.date, shift.startTime, shift.endTime, shift.shiftType, shift.department, shift.status, shift.notes]
+      );
+      shiftIds.push(result.lastInsertId);
+    }
+    
+    console.log(`✓ Created ${shifts.length} sample shifts`);
+    
+    // Get patients for assignments
+    const patients = await db.select('SELECT id FROM patients LIMIT 4');
+    if (patients.length === 0) {
+      console.log('No patients found for assignments');
+      return;
+    }
+    
+    // Update patients with triage levels (simulate different urgency levels)
+    const triageLevels = [1, 2, 3, 4]; // Mix of urgency levels
+    for (let i = 0; i < patients.length && i < triageLevels.length; i++) {
+      await db.execute(
+        'UPDATE patients SET triage_level = ? WHERE id = ?',
+        [triageLevels[i], patients[i].id]
+      );
+    }
+    console.log(`✓ Updated triage levels for ${patients.length} patients`);
+    
+    // Assign patients to nurse for today's shift (index 1 = today)
+    const todayShiftId = shiftIds[1];
+    const todayDate = today.toISOString().split('T')[0];
+    
+    for (const patient of patients) {
+      await db.execute(
+        `INSERT INTO nurse_patient_assignments (nurse_id, patient_id, shift_id, assigned_date, assignment_start, assignment_end, status, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [nurseId, patient.id, todayShiftId, todayDate, '07:00', '15:00', 'Active', 'Paciente asignado para cuidados generales']
+      );
+    }
+    
+    console.log(`✓ Assigned ${patients.length} patients to nurse for today's shift`);
+    
+    // Add sample treatments with schedules and responsible doctors
+    const sampleTreatments = [
+      {
+        patientId: patients[0].id,
+        medication: 'Paracetamol',
+        dose: '500mg',
+        frequency: 'Cada 8 horas',
+        startDate: todayDate,
+        appliedBy: 'Enfermero Juan Pérez',
+        lastApplication: todayDate + ' 08:00',
+        responsibleDoctor: 'Dr. Carlos Ramírez',
+        administrationTimes: '08:00,16:00,00:00',
+        status: 'Activo',
+        notes: 'Para control de fiebre y dolor'
+      },
+      {
+        patientId: patients[0].id,
+        medication: 'Omeprazol',
+        dose: '20mg',
+        frequency: 'Cada 24 horas',
+        startDate: todayDate,
+        appliedBy: 'Enfermero Juan Pérez',
+        lastApplication: todayDate + ' 08:00',
+        responsibleDoctor: 'Dr. Carlos Ramírez',
+        administrationTimes: '08:00',
+        status: 'Activo',
+        notes: 'Protector gástrico, tomar en ayunas'
+      }
+    ];
+    
+    if (patients.length > 1) {
+      sampleTreatments.push({
+        patientId: patients[1].id,
+        medication: 'Losartán',
+        dose: '50mg',
+        frequency: 'Cada 12 horas',
+        startDate: todayDate,
+        appliedBy: 'Enfermero Juan Pérez',
+        lastApplication: todayDate + ' 08:00',
+        responsibleDoctor: 'Dra. María Torres',
+        administrationTimes: '08:00,20:00',
+        status: 'Activo',
+        notes: 'Para control de presión arterial'
+      });
+      
+      sampleTreatments.push({
+        patientId: patients[1].id,
+        medication: 'Atorvastatina',
+        dose: '10mg',
+        frequency: 'Cada 24 horas',
+        startDate: todayDate,
+        appliedBy: 'Enfermero Juan Pérez',
+        lastApplication: todayDate + ' 20:00',
+        responsibleDoctor: 'Dra. María Torres',
+        administrationTimes: '20:00',
+        status: 'Activo',
+        notes: 'Para control de colesterol, tomar por la noche'
+      });
+    }
+    
+    // Insert treatments
+    for (const treatment of sampleTreatments) {
+      await db.execute(
+        `INSERT INTO treatments (patient_id, medication, dose, frequency, start_date, applied_by, last_application, 
+         responsible_doctor, administration_times, status, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          treatment.patientId,
+          treatment.medication,
+          treatment.dose,
+          treatment.frequency,
+          treatment.startDate,
+          treatment.appliedBy,
+          treatment.lastApplication,
+          treatment.responsibleDoctor,
+          treatment.administrationTimes,
+          treatment.status,
+          treatment.notes
+        ]
+      );
+    }
+    
+    console.log(`✓ Created ${sampleTreatments.length} sample treatments with schedules`);
+    
+  } catch (error) {
+    console.error('Error initializing sample nurse data:', error);
+  }
+}
+
 // Create new user
 export async function createUser(userData) {
   try {
     await db.execute(
-      'INSERT INTO users (username, password_hash, role, name, email, phone, department, specialization) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+      'INSERT INTO users (username, password_hash, role, name, email, phone, department, specialization) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [userData.username, userData.password_hash, userData.role, userData.name, userData.email || null, userData.phone || null, userData.department || null, userData.specialization || null]
     );
     console.log('User created successfully');
@@ -1371,7 +1885,7 @@ export async function getAllUsers() {
 // Get users by role
 export async function getUsersByRole(role) {
   try {
-    return await db.select('SELECT id, username, role, name, email, phone, department, specialization FROM users WHERE role = $1 AND is_active = 1', [role]);
+    return await db.select('SELECT id, username, role, name, email, phone, department, specialization FROM users WHERE role = ? AND is_active = 1', [role]);
   } catch (error) {
     console.error('Error getting users by role:', error);
     throw error;
@@ -1382,7 +1896,7 @@ export async function getUsersByRole(role) {
 export async function updateUser(id, userData) {
   try {
     await db.execute(
-      'UPDATE users SET name = $1, email = $2, phone = $3, department = $4, specialization = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6',
+      'UPDATE users SET name = ?, email = ?, phone = ?, department = ?, specialization = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [userData.name, userData.email || null, userData.phone || null, userData.department || null, userData.specialization || null, id]
     );
     console.log('User updated successfully');
@@ -1396,7 +1910,7 @@ export async function updateUser(id, userData) {
 export async function updateUserProfile(id, profileData) {
   try {
     await db.execute(
-      'UPDATE users SET name = $1, email = $2, phone = $3, bio = $4, profile_photo = $5, updated_at = CURRENT_TIMESTAMP WHERE id = $6',
+      'UPDATE users SET name = ?, email = ?, phone = ?, bio = ?, profile_photo = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [profileData.name, profileData.email || null, profileData.phone || null, profileData.bio || null, profileData.profilePhoto || null, id]
     );
     console.log('User profile updated successfully');
@@ -1410,7 +1924,7 @@ export async function updateUserProfile(id, profileData) {
 export async function updateUserPassword(id, newPasswordHash) {
   try {
     await db.execute(
-      'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [newPasswordHash, id]
     );
     console.log('User password updated successfully');
@@ -1425,7 +1939,7 @@ export async function updateLastLogin(id) {
   try {
     const now = new Date().toISOString();
     await db.execute(
-      'UPDATE users SET last_login = $1 WHERE id = $2',
+      'UPDATE users SET last_login = ? WHERE id = ?',
       [now, id]
     );
   } catch (error) {
@@ -1436,7 +1950,7 @@ export async function updateLastLogin(id) {
 // Deactivate user (soft delete)
 export async function deactivateUser(id) {
   try {
-    await db.execute('UPDATE users SET is_active = 0 WHERE id = $1', [id]);
+    await db.execute('UPDATE users SET is_active = 0 WHERE id = ?', [id]);
     console.log('User deactivated successfully');
   } catch (error) {
     console.error('Error deactivating user:', error);
@@ -1447,7 +1961,7 @@ export async function deactivateUser(id) {
 // Delete user
 export async function deleteUser(id) {
   try {
-    await db.execute('DELETE FROM users WHERE id = $1', [id]);
+    await db.execute('DELETE FROM users WHERE id = ?', [id]);
     console.log('User deleted successfully');
   } catch (error) {
     console.error('Error deleting user:', error);
@@ -1455,11 +1969,90 @@ export async function deleteUser(id) {
   }
 }
 
+// ========== PATIENT TRANSFER OPERATIONS ==========
+
+// Get all transfers for a patient
+export async function getPatientTransfers(patientId) {
+  const db = await initDatabase();
+  return await db.select(
+    'SELECT * FROM patient_transfers WHERE patient_id = ? ORDER BY transfer_date DESC, transfer_time DESC',
+    [patientId]
+  );
+}
+
+// Get all recent transfers
+export async function getAllRecentTransfers(limit = 50) {
+  const db = await initDatabase();
+  return await db.select(
+    `SELECT pt.*, p.name as patient_name 
+     FROM patient_transfers pt 
+     JOIN patients p ON pt.patient_id = p.id 
+     ORDER BY pt.transfer_date DESC, pt.transfer_time DESC 
+     LIMIT ?`,
+    [limit]
+  );
+}
+
+// Create patient transfer
+export async function createPatientTransfer(transfer) {
+  const db = await initDatabase();
+  
+  // Get current patient location
+  const patient = await db.select('SELECT floor, area, room, bed FROM patients WHERE id = ?', [transfer.patientId]);
+  
+  const fromLocation = patient[0] || {};
+  
+  // Insert transfer record
+  const result = await db.execute(
+    `INSERT INTO patient_transfers 
+     (patient_id, from_floor, from_area, from_room, from_bed, to_floor, to_area, to_room, to_bed, 
+      transfer_date, transfer_time, reason, transferred_by, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      transfer.patientId,
+      fromLocation.floor || null,
+      fromLocation.area || null,
+      fromLocation.room || null,
+      fromLocation.bed || null,
+      transfer.toFloor,
+      transfer.toArea,
+      transfer.toRoom,
+      transfer.toBed,
+      transfer.transferDate,
+      transfer.transferTime,
+      transfer.reason || null,
+      transfer.transferredBy,
+      transfer.notes || null
+    ]
+  );
+  
+  // Update patient location
+  await db.execute(
+    `UPDATE patients 
+     SET floor = ?, area = ?, room = ?, bed = ?, updated_at = CURRENT_TIMESTAMP 
+     WHERE id = ?`,
+    [transfer.toFloor, transfer.toArea, transfer.toRoom, transfer.toBed, transfer.patientId]
+  );
+  
+  return result.lastInsertId;
+}
+
+// Update patient location (without creating transfer record)
+export async function updatePatientLocation(patientId, floor, area, room, bed) {
+  const db = await initDatabase();
+  await db.execute(
+    `UPDATE patients 
+     SET floor = ?, area = ?, room = ?, bed = ?, updated_at = CURRENT_TIMESTAMP 
+     WHERE id = ?`,
+    [floor, area, room, bed, patientId]
+  );
+}
+
 // Password reset token operations
 export async function createPasswordResetToken(userId, token, expiresAt) {
   try {
     await db.execute(
-      'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
+      'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
       [userId, token, expiresAt]
     );
   } catch (error) {
@@ -1471,7 +2064,7 @@ export async function createPasswordResetToken(userId, token, expiresAt) {
 export async function getPasswordResetToken(token) {
   try {
     const result = await db.select(
-      'SELECT * FROM password_reset_tokens WHERE token = $1 AND used = 0',
+      'SELECT * FROM password_reset_tokens WHERE token = ? AND used = 0',
       [token]
     );
     return result.length > 0 ? result[0] : null;
@@ -1484,7 +2077,7 @@ export async function getPasswordResetToken(token) {
 export async function markTokenAsUsed(token) {
   try {
     await db.execute(
-      'UPDATE password_reset_tokens SET used = 1 WHERE token = $1',
+      'UPDATE password_reset_tokens SET used = 1 WHERE token = ?',
       [token]
     );
   } catch (error) {
