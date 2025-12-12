@@ -7,31 +7,34 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
+        // Paleta de colores clínica y profesional
+        hospital: {
+          50: '#f8fafc', // Fondo principal muy claro (casi blanco)
+          100: '#f1f5f9', // Fondos de secciones secundarias
+          200: '#e2e8f0', // Bordes sutiles
+          300: '#cbd5e1', // Textos secundarios / placeholders
+          400: '#94a3b8', // Iconos inactivos
+          500: '#64748b', // Texto descriptivo
+          600: '#475569', // Texto principal
+          700: '#334155', // Encabezados
+          800: '#1e293b', // Texto oscuro / Sidebar
+          900: '#0f172a', // Negro casi total
         },
-        success: {
-          50: '#f0fdf4',
-          100: '#dcfce7',
-          500: '#22c55e',
-          600: '#16a34a',
-        },
-        danger: {
-          50: '#fef2f2',
-          100: '#fee2e2',
-          500: '#ef4444',
-          600: '#dc2626',
-        },
+        clinical: {
+          primary: '#0284c7', // Azul médico principal (Sky 600) - Acciones principales
+          dark: '#0369a1',      // Azul más oscuro para hover
+          light: '#e0f2fe',     // Azul muy claro para fondos de acento
+          success: '#10b981',   // Verde esmeralda (Estable)
+          warning: '#f59e0b',   // Ámbar (Pendiente)
+          danger: '#ef4444',    // Rojo (Crítico/Alergias)
+        }
       },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+      },
+      boxShadow: {
+        'card': '0 2px 4px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04)',
+      }
     },
   },
   plugins: [],
