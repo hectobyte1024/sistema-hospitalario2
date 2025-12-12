@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Activity, User, Lock, AlertCircle, ArrowRight } from 'lucide-react';
 import { login as authLogin } from '../services/auth';
 
-// Nota: He añadido la prop `onShowRegister` para futuras implementaciones si lo necesitas.
 export default function LoginForm({ onLoginSuccess, onBackToHome, onShowRegister }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -26,7 +25,7 @@ export default function LoginForm({ onLoginSuccess, onBackToHome, onShowRegister
   };
 
   return (
-    // El contenedor principal ahora es transparente para superponerse al fondo de App.jsx
+    // El contenedor principal es transparente para superponerse al fondo de App.jsx
     <div className="fixed inset-0 flex items-center justify-center p-4 z-50 animate-fadeIn ml-auto mr-auto">
       <div 
         className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full grid md:grid-cols-5 overflow-hidden animate-scaleIn"
@@ -114,11 +113,21 @@ export default function LoginForm({ onLoginSuccess, onBackToHome, onShowRegister
             </button>
           </form>
 
-          <div className="mt-10 pt-6 border-t border-hospital-100 text-center">
+          <div className="mt-8 pt-6 border-t border-hospital-100 text-center">
             <p className="text-sm text-hospital-500 mb-3 font-medium">Credenciales de Acceso Demo:</p>
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-clinical-dark rounded-full text-sm font-bold border border-blue-100">
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-clinical-dark rounded-full text-sm font-bold border border-blue-100 mb-4">
               <User size={16}/> enfermero / enfermeros123
             </div>
+            
+            <p className="text-hospital-500 font-medium text-sm">
+              ¿No tienes una cuenta?{' '}
+              <button 
+                onClick={onShowRegister} 
+                className="text-clinical-primary font-bold hover:underline transition"
+              >
+                Registrarse aquí
+              </button>
+            </p>
           </div>
         </div>
       </div>
