@@ -1,71 +1,22 @@
 import React, { useState } from 'react';
-import { Activity, User, Lock, AlertCircle, ArrowRight, Info } from 'lucide-react';
+import { Activity, User, Lock, AlertCircle, ArrowRight } from 'lucide-react';
 import { login as authLogin } from '../services/auth';
 
-export default function LoginForm({ onLoginSuccess, onBackToHome, onShowRegister, onShowPasswordRecovery }) {
-  const [username, setUsername] = useState('');
+export default function LoginForm({ onLoginSuccess }) {
+  const [cedula, setCedula] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [warning, setWarning] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  // Detectar información del dispositivo
-  const getDeviceInfo = () => {
-    const ua = navigator.userAgent;
-    let browser = 'Desconocido';
-    let os = 'Desconocido';
-
-    // Detectar navegador
-    if (ua.indexOf('Firefox') > -1) browser = 'Firefox';
-    else if (ua.indexOf('Chrome') > -1) browser = 'Chrome';
-    else if (ua.indexOf('Safari') > -1) browser = 'Safari';
-    else if (ua.indexOf('Edge') > -1) browser = 'Edge';
-    else if (ua.indexOf('Opera') > -1 || ua.indexOf('OPR') > -1) browser = 'Opera';
-
-    // Detectar sistema operativo
-    if (ua.indexOf('Win') > -1) os = 'Windows';
-    else if (ua.indexOf('Mac') > -1) os = 'macOS';
-    else if (ua.indexOf('Linux') > -1) os = 'Linux';
-    else if (ua.indexOf('Android') > -1) os = 'Android';
-    else if (ua.indexOf('iOS') > -1) os = 'iOS';
-
-    return {
-      browser,
-      os,
-      userAgent: ua,
-      ipAddress: 'N/A' // En producción, obtener del servidor
-    };
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setWarning('');
     setIsLoading(true);
 
     try {
-      // Pequeño timeout para simular carga y que se vea el spinner
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      // Obtener información del dispositivo
-      const deviceInfo = getDeviceInfo();
-      
-      // Hacer login con información del dispositivo
-      const userData = await authLogin(username, password, deviceInfo);
-      
-      // Guardar sessionToken en localStorage
-      if (userData.sessionToken) {
-        localStorage.setItem('sessionToken', userData.sessionToken);
-      }
-      
-      // Mostrar advertencia si hubo sesión anterior
-      if (userData.sessionWarning) {
-        setWarning(userData.sessionWarning);
-        // La advertencia desaparecerá después de 3 segundos
-        setTimeout(() => setWarning(''), 3000);
-      }
-      
-      onLoginSuccess(userData);
+      // Llamada al servicio auth.js (que consulta SQLite)
+      const user = await authLogin(cedula, password);
+      onLoginSuccess(user);
     } catch (err) {
       setError(err.message || 'Credenciales incorrectas');
       setIsLoading(false);
@@ -73,128 +24,75 @@ export default function LoginForm({ onLoginSuccess, onBackToHome, onShowRegister
   };
 
   return (
-    <div style={{ 
-      position: 'fixed', 
-      top: 0, 
-      left: 0, 
-      right: 0, 
-      bottom: 0, 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      zIndex: 50,
-      padding: '1rem'
-    }} className="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-      <div className="bg-white rounded-3xl shadow-2xl w-full p-8 relative animate-scaleIn" style={{ maxWidth: '360px' }}>
-        {/* Icon at top */}
-        <div className="flex justify-center mb-6">
-          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
-            <Activity size={40} className="text-white" strokeWidth={3} />
+    <div className="fixed inset-0 flex items-center justify-center bg-hospital-50 p-4 z-50">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl grid md:grid-cols-5 overflow-hidden border border-hospital-100 animate-scaleIn">
+        
+        {/* Lado Izquierdo (Branding) */}
+        <div className="hidden md:flex md:col-span-2 bg-gradient-to-br from-clinical-primary to-clinical-dark p-10 flex-col justify-between text-white relative">
+          <Activity size={100} className="absolute -top-5 -right-5 opacity-10" />
+          <div>
+            <h1 className="text-3xl font-black leading-tight mb-2">Hospital<br/>San Rafael</h1>
+            <p className="text-blue-100 font-medium">Gestión de Enfermería</p>
+          </div>
+          <div className="text-xs text-blue-200 space-y-1">
+            <p>• Cumplimiento NOM-004</p>
+            <p>• Acceso Seguro SSL</p>
+            <p>v2.5.0 Enterprise</p>
           </div>
         </div>
-        
-        {/* Title */}
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-black text-gray-800 mb-2">Sistema Gestor Hospitalario</h2>
-          <p className="text-gray-600 font-medium">Módulo de Enfermería</p>
-        </div>
+
+        {/* Lado Derecho (Formulario) */}
+        <div className="md:col-span-3 p-10 flex flex-col justify-center">
+          <h2 className="text-2xl font-bold text-hospital-800 mb-6">Iniciar Sesión</h2>
           
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg flex items-center gap-3">
-            <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-xl flex items-center gap-3 border border-red-100 animate-pulse">
+              <AlertCircle size={20}/> <span className="font-bold text-sm">{error}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <p className="text-sm font-semibold text-red-800">{error}</p>
+              <label className="block text-xs font-bold text-hospital-500 uppercase mb-2 ml-1">Cédula Profesional</label>
+              <div className="relative group">
+                <User className="absolute left-4 top-3.5 text-hospital-400 group-focus-within:text-clinical-primary transition-colors" size={20} />
+                <input
+                  type="text"
+                  value={cedula}
+                  onChange={(e) => setCedula(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 bg-hospital-50 border border-hospital-200 rounded-xl focus:bg-white focus:border-clinical-primary focus:ring-4 focus:ring-blue-50 outline-none font-bold text-hospital-800 transition-all placeholder:font-normal placeholder:text-hospital-300"
+                  placeholder="Ej. ENF-12345"
+                  required
+                />
+              </div>
             </div>
-          </div>
-        )}
 
-        {warning && (
-          <div className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 rounded-lg flex items-center gap-3 animate-scaleIn">
-            <Info size={20} className="text-amber-600 flex-shrink-0" />
             <div>
-              <p className="text-sm font-semibold text-amber-800">{warning}</p>
+              <label className="block text-xs font-bold text-hospital-500 uppercase mb-2 ml-1">Contraseña</label>
+              <div className="relative group">
+                <Lock className="absolute left-4 top-3.5 text-hospital-400 group-focus-within:text-clinical-primary transition-colors" size={20} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 bg-hospital-50 border border-hospital-200 rounded-xl focus:bg-white focus:border-clinical-primary focus:ring-4 focus:ring-blue-50 outline-none font-bold text-hospital-800 transition-all"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+            </div>
+
+            <button type="submit" disabled={isLoading} className="w-full py-4 bg-clinical-primary text-white rounded-xl font-bold hover:bg-clinical-dark transition shadow-xl shadow-blue-200/50 flex justify-center items-center gap-2 disabled:opacity-70 mt-2">
+              {isLoading ? 'Verificando...' : <>Acceder al Sistema <ArrowRight size={20}/></>}
+            </button>
+          </form>
+
+          <div className="mt-8 pt-6 border-t border-hospital-100 text-center">
+            <p className="text-hospital-400 text-xs mb-2">Credenciales Demo (ADS):</p>
+            <div className="inline-block bg-hospital-50 px-4 py-2 rounded-lg border border-hospital-200 text-xs text-hospital-600 font-mono">
+              User: <b>ENF-12345</b> &nbsp;|&nbsp; Pass: <b>enfermeros123</b>
             </div>
           </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Cédula</label>
-            <div className="relative">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-                <User size={20} />
-              </div>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all font-medium text-gray-800 placeholder:text-gray-400"
-                placeholder="Ingrese su cédula"
-                required
-                disabled={isLoading}
-                autoFocus
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Contraseña</label>
-            <div className="relative">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-                <Lock size={20} />
-              </div>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all font-medium text-gray-800 placeholder:text-gray-400"
-                placeholder="Ingrese su contraseña"
-                required
-                disabled={isLoading}
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoading || !username || !password}
-            className="w-full py-3.5 mt-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-base disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40"
-          >
-            {isLoading ? (
-              <div className="flex items-center justify-center gap-2">
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                <span>Iniciando...</span>
-              </div>
-            ) : (
-              'Iniciar Sesión'
-            )}
-          </button>
-        </form>
-
-        
-        <div className="text-center mt-6">
-          <button 
-            onClick={onShowPasswordRecovery}
-            className="text-blue-600 hover:text-blue-700 font-semibold text-sm transition-colors"
-          >
-            ¿Olvidó su contraseña?
-          </button>
-        </div>
-
-        <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-          <p className="text-sm text-amber-900 font-semibold mb-1">Demo:</p>
-          <p className="text-xs text-amber-800">Usuario: <span className="font-mono font-bold">enfermero</span> / Contraseña: <span className="font-mono font-bold">Enfermero123</span></p>
-          <p className="text-xs text-amber-700 mt-1">Cédula profesional: <span className="font-mono font-bold">1234567</span></p>
-        </div>
-
-        <div className="mt-6 text-center">
-          <p className="text-sm text-gray-600 mb-2">¿No tienes una cuenta?</p>
-          <button 
-            onClick={onShowRegister} 
-            className="text-blue-600 hover:text-blue-700 font-bold text-sm transition-colors inline-flex items-center gap-1"
-          >
-            Crear cuenta nueva <ArrowRight size={16} />
-          </button>
         </div>
       </div>
     </div>
