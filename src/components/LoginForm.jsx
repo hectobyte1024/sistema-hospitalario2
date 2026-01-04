@@ -1,23 +1,71 @@
 import React, { useState } from 'react';
-import { Activity, User, Lock, AlertCircle, ArrowRight } from 'lucide-react';
+import { Activity, User, Lock, AlertCircle, ArrowRight, Info } from 'lucide-react';
 import { login as authLogin } from '../services/auth';
 
 export default function LoginForm({ onLoginSuccess, onBackToHome, onShowRegister, onShowPasswordRecovery }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Detectar información del dispositivo
+  const getDeviceInfo = () => {
+    const ua = navigator.userAgent;
+    let browser = 'Desconocido';
+    let os = 'Desconocido';
+
+    // Detectar navegador
+    if (ua.indexOf('Firefox') > -1) browser = 'Firefox';
+    else if (ua.indexOf('Chrome') > -1) browser = 'Chrome';
+    else if (ua.indexOf('Safari') > -1) browser = 'Safari';
+    else if (ua.indexOf('Edge') > -1) browser = 'Edge';
+    else if (ua.indexOf('Opera') > -1 || ua.indexOf('OPR') > -1) browser = 'Opera';
+
+    // Detectar sistema operativo
+    if (ua.indexOf('Win') > -1) os = 'Windows';
+    else if (ua.indexOf('Mac') > -1) os = 'macOS';
+    else if (ua.indexOf('Linux') > -1) os = 'Linux';
+    else if (ua.indexOf('Android') > -1) os = 'Android';
+    else if (ua.indexOf('iOS') > -1) os = 'iOS';
+
+    return {
+      browser,
+      os,
+      userAgent: ua,
+      ipAddress: 'N/A' // En producción, obtener del servidor
+    };
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setWarning('');
     setIsLoading(true);
 
     try {
       // Pequeño timeout para simular carga y que se vea el spinner
       await new Promise(resolve => setTimeout(resolve, 800));
-      const user = await authLogin(username, password);
-      onLoginSuccess(user);
+      
+      // Obtener información del dispositivo
+      const deviceInfo = getDeviceInfo();
+      
+      // Hacer login con información del dispositivo
+      const userData = await authLogin(username, password, deviceInfo);
+      
+      // Guardar sessionToken en localStorage
+      if (userData.sessionToken) {
+        localStorage.setItem('sessionToken', userData.sessionToken);
+      }
+      
+      // Mostrar advertencia si hubo sesión anterior
+      if (userData.sessionWarning) {
+        setWarning(userData.sessionWarning);
+        // La advertencia desaparecerá después de 3 segundos
+        setTimeout(() => setWarning(''), 3000);
+      }
+      
+      onLoginSuccess(userData);
     } catch (err) {
       setError(err.message || 'Credenciales incorrectas');
       setIsLoading(false);
@@ -56,9 +104,18 @@ export default function LoginForm({ onLoginSuccess, onBackToHome, onShowRegister
             <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
             <div>
               <p className="text-sm font-semibold text-red-800">{error}</p>
-              </div>
             </div>
-          )}
+          </div>
+        )}
+
+        {warning && (
+          <div className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 rounded-lg flex items-center gap-3 animate-scaleIn">
+            <Info size={20} className="text-amber-600 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">{warning}</p>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>

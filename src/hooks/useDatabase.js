@@ -225,6 +225,11 @@ export async function initializeApp() {
     await db.seedInitialData();
     console.log('✅ Hospital data seeded');
     
+    // Initialize pharmacy inventory
+    console.log('💊 Initializing pharmacy inventory...');
+    await db.initializeSamplePharmacy();
+    console.log('✅ Pharmacy inventory initialized');
+    
     // Verify database is working
     console.log('🔍 Verifying database connection...');
     const testUser = await db.getUserByUsername('admin');

@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Calendar, Clock, User, FileText, Activity, Users, Pill, 
   LogOut, Heart, Stethoscope, AlertCircle, CheckCircle, 
-  Menu, X, LayoutDashboard, Syringe, ClipboardList, ChevronRight, Save, Building2, ShieldCheck, Bed, Edit2
+  Menu, X, LayoutDashboard, Syringe, ClipboardList, ChevronRight, Save, Building2, ShieldCheck, Bed, Edit2,
+  MessageCircle, Eye, Brain, Lock, Info, Droplet, Gauge, AlertTriangle, Bandage, FileSignature
 } from 'lucide-react';
 import { usePatients, useAppointments, useTreatments, useVitalSigns, useNurseNotes, useNonPharmaTreatments, initializeApp } from './hooks/useDatabase';
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
 import PasswordRecoveryForm from './components/PasswordRecoveryForm';
+import { logout as authLogout } from './services/auth';
 import { validateAllVitalSigns, getStatusColor, getStatusIcon } from './utils/vitalSignsValidation';
 import { 
   filterPatientsByAssignment, 
@@ -25,7 +27,7 @@ import {
   formatAllergiesForDisplay,
   canOverrideAllergyWarning
 } from './utils/allergyValidation';
-import { logAllergyAlert, editNurseNote, getNoteEditHistory } from './services/database';
+import { logAllergyAlert, editNurseNote, getNoteEditHistory, createNurseNote, getAllPharmacyItems } from './services/database';
 
 // --- COMPONENTES UI REUTILIZABLES (Tarjetas, Encabezados) ---
 
@@ -125,7 +127,7 @@ const NurseDashboard = ({ user, onLogout }) => {
   const { appointments } = useAppointments();
   const { treatments, addTreatment: addTreatmentDB } = useTreatments();
   const { vitalSigns, addVitalSigns: addVitalSignsDB } = useVitalSigns();
-  const { nurseNotes, addNurseNote: addNurseNoteDB } = useNurseNotes();
+  const { nurseNotes, addNurseNote: addNurseNoteDB, refresh: refreshNotes } = useNurseNotes();
   const { nonPharmaTreatments, addNonPharmaTreatment: addNonPharmaTreatmentDB } = useNonPharmaTreatments();
 
   // Estados locales para formularios
@@ -154,6 +156,14 @@ const NurseDashboard = ({ user, onLogout }) => {
   const [selectedNoteHistory, setSelectedNoteHistory] = useState(null);
   const [showNoteHistoryModal, setShowNoteHistoryModal] = useState(false);
   const [noteEditHistory, setNoteEditHistory] = useState([]);
+  
+  // Triage modal states
+  const [showTriageModal, setShowTriageModal] = useState(false);
+  const [selectedTriagePatient, setSelectedTriagePatient] = useState(null);
+  
+  // Transfers modal states
+  const [showTransfersModal, setShowTransfersModal] = useState(false);
+  const [selectedTransfersPatient, setSelectedTransfersPatient] = useState(null);
   
   const [nursingSheetData, setNursingSheetData] = useState({
     shiftDate: new Date().toISOString().split('T')[0],
@@ -230,6 +240,18 @@ const NurseDashboard = ({ user, onLogout }) => {
       room: patient.room,
       bed: ['A', 'B', 'C', 'D'][Math.floor(Math.random() * 4)]
     };
+  };
+
+  // Función para obtener información de triaje según nivel
+  const getTriageInfo = (level) => {
+    const triageMap = {
+      1: { name: 'Nivel I - Resucitación', color: 'bg-red-600', textColor: 'text-red-600', borderColor: 'border-red-600', ringColor: 'ring-red-200', description: 'Riesgo vital inmediato' },
+      2: { name: 'Nivel II - Emergencia', color: 'bg-orange-500', textColor: 'text-orange-500', borderColor: 'border-orange-500', ringColor: 'ring-orange-200', description: 'Situación de emergencia' },
+      3: { name: 'Nivel III - Urgencia', color: 'bg-yellow-500', textColor: 'text-yellow-600', borderColor: 'border-yellow-500', ringColor: 'ring-yellow-200', description: 'Situación urgente' },
+      4: { name: 'Nivel IV - Urgencia Menor', color: 'bg-green-500', textColor: 'text-green-600', borderColor: 'border-green-500', ringColor: 'ring-green-200', description: 'Urgencia menor' },
+      5: { name: 'Nivel V - No Urgente', color: 'bg-blue-500', textColor: 'text-blue-600', borderColor: 'border-blue-500', ringColor: 'ring-blue-200', description: 'Sin urgencia' }
+    };
+    return triageMap[level] || triageMap[3];
   };
 
   // Verificar si un paciente fue trasladado recientemente (últimas 24 horas)
@@ -818,7 +840,8 @@ const NurseDashboard = ({ user, onLogout }) => {
             </div>
           </div>
         </div>
-      </div>
+      </div>,
+      document.body
     );
   };
 
@@ -1081,113 +1104,473 @@ const NurseDashboard = ({ user, onLogout }) => {
     );
   };
 
-  const PatientsListView = () => (
-    <div className="bg-gradient-to-br from-white via-slate-50 to-blue-50/30 rounded-2xl shadow-card border-2 border-blue-100 overflow-hidden animate-fadeIn hover:shadow-2xl hover:shadow-blue-200/50 transition-all duration-300">
-      <div className="px-6 py-5 border-b border-blue-100 flex items-center justify-between bg-gradient-to-r from-blue-50 via-purple-50 to-pink-50">
-        <h3 className="font-bold text-gray-800 flex items-center gap-2 text-lg">
-            <Users size={20} className="text-blue-600" />
-            Directorio de Pacientes
-        </h3>
+  // Modal de Triaje
+  const TriageModal = () => {
+    if (!showTriageModal || !selectedTriagePatient) return null;
+    
+    const triageInfo = getTriageInfo(selectedTriagePatient.triage_level || 3);
+    
+    // Obtener signos vitales de ingreso (primeros registrados)
+    const admissionVitals = vitalSigns
+      .filter(vs => vs.patientId === selectedTriagePatient.id)
+      .sort((a, b) => new Date(a.timestamp || a.date) - new Date(b.timestamp || b.date))[0];
+    
+    const handleClose = () => {
+      setShowTriageModal(false);
+      setSelectedTriagePatient(null);
+    };
+    
+    return (
+      <div 
+        className="fixed inset-0 flex items-center justify-center p-4 animate-fadeIn" 
+        style={{ zIndex: 99999, backgroundColor: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(8px)' }}
+        onClick={handleClose}
+      >
+        <div 
+          className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-slideUp"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-600 px-6 py-5 flex items-center justify-between text-white shadow-lg">
+            <div className="flex items-center gap-3">
+              <AlertCircle size={28} className="animate-pulse" />
+              <div>
+                <h2 className="text-2xl font-black">Información de Triaje</h2>
+                <p className="text-white/90 text-sm mt-1">Paciente: {selectedTriagePatient.name}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setShowTriageModal(false);
+                setSelectedTriagePatient(null);
+              }}
+              className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all"
+            >
+              <X size={24} />
+            </button>
+          </div>
+
+          {/* Contenido */}
+          <div className="p-6 space-y-6">
+            {/* Nivel y Color de Triaje */}
+            <div className={`border-2 ${triageInfo.borderColor} rounded-xl p-5 bg-gradient-to-br from-white to-gray-50`}>
+              <div className="flex items-center gap-4 mb-3">
+                <div className={`w-16 h-16 rounded-xl ${triageInfo.color} flex items-center justify-center text-white font-black text-2xl shadow-lg`}>
+                  {selectedTriagePatient.triage_level || 3}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-600 uppercase tracking-wide">Nivel de Triaje</p>
+                  <p className={`text-xl font-black ${triageInfo.textColor}`}>{triageInfo.name}</p>
+                </div>
+              </div>
+              <p className="text-gray-700 font-medium">{triageInfo.description}</p>
+            </div>
+
+            {/* Signos Vitales de Ingreso */}
+            <div>
+              <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <Heart size={20} className="text-red-500" />
+                Signos Vitales de Ingreso
+              </h3>
+              {admissionVitals ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-blue-50 rounded-xl p-4 border-2 border-blue-200">
+                    <p className="text-xs font-semibold text-blue-600 uppercase mb-1">Temperatura</p>
+                    <p className="text-2xl font-bold text-gray-900">{admissionVitals.temperature}°C</p>
+                  </div>
+                  <div className="bg-purple-50 rounded-xl p-4 border-2 border-purple-200">
+                    <p className="text-xs font-semibold text-purple-600 uppercase mb-1">Presión Arterial</p>
+                    <p className="text-2xl font-bold text-gray-900">{admissionVitals.bloodPressure}</p>
+                  </div>
+                  <div className="bg-pink-50 rounded-xl p-4 border-2 border-pink-200">
+                    <p className="text-xs font-semibold text-pink-600 uppercase mb-1">Frecuencia Cardíaca</p>
+                    <p className="text-2xl font-bold text-gray-900">{admissionVitals.heartRate} bpm</p>
+                  </div>
+                  <div className="bg-cyan-50 rounded-xl p-4 border-2 border-cyan-200">
+                    <p className="text-xs font-semibold text-cyan-600 uppercase mb-1">Frecuencia Respiratoria</p>
+                    <p className="text-2xl font-bold text-gray-900">{admissionVitals.respiratoryRate} rpm</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gray-50 rounded-xl p-6 text-center border-2 border-gray-200">
+                  <p className="text-gray-600 font-medium">No hay signos vitales de ingreso registrados</p>
+                </div>
+              )}
+            </div>
+
+            {/* Motivo de Consulta */}
+            <div>
+              <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <FileText size={20} className="text-indigo-500" />
+                Motivo de Consulta
+              </h3>
+              <div className="bg-indigo-50 rounded-xl p-5 border-2 border-indigo-200">
+                <p className="text-gray-800 font-medium leading-relaxed">
+                  {selectedTriagePatient.admission_reason || selectedTriagePatient.reason || 'No especificado'}
+                </p>
+              </div>
+            </div>
+
+            {/* Información Adicional */}
+            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-200">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Fecha de Ingreso</p>
+                <p className="text-sm font-bold text-gray-900">
+                  {new Date(selectedTriagePatient.admission_date).toLocaleDateString('es-MX', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Estado Actual</p>
+                <p className="text-sm font-bold text-gray-900">{selectedTriagePatient.condition}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end">
+            <button
+              onClick={() => {
+                setShowTriageModal(false);
+                setSelectedTriagePatient(null);
+              }}
+              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold rounded-xl hover:shadow-xl hover:scale-105 transition-all"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead className="bg-gradient-to-r from-blue-100 via-purple-100 to-pink-100">
-            <tr>
-              <th className="px-6 py-4 text-xs font-bold text-gray-700 uppercase tracking-widerFirst">Paciente</th>
-              <th className="px-6 py-4 text-xs font-bold text-gray-700 uppercase tracking-wider">Ubicación</th>
-              <th className="px-6 py-4 text-xs font-bold text-gray-700 uppercase tracking-wider">Info. Médica</th>
-              <th className="px-6 py-4 text-xs font-bold text-gray-700 uppercase tracking-wider">Estado Actual</th>
-              <th className="px-6 py-4 text-xs font-bold text-gray-700 uppercase tracking-wider text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-hospital-100">
-            {patients.map((patient) => {
-               const location = getPatientLocation(patient.id);
-               const recentTransfer = wasRecentlyTransferred(patient.id);
-               const statusConfig = {
-                'Crítico': { 
-                  bg: 'bg-gradient-to-r from-red-500 to-rose-600', 
-                  text: 'text-white',
-                  dot: 'bg-white',
-                  border: 'border-red-300',
-                  glow: 'shadow-lg shadow-red-500/30'
-                },
-                'Estable': { 
-                  bg: 'bg-gradient-to-r from-emerald-500 to-teal-600', 
-                  text: 'text-white',
-                  dot: 'bg-white',
-                  border: 'border-emerald-300',
-                  glow: 'shadow-lg shadow-emerald-500/30'
-                },
-                'Recuperación': { 
-                  bg: 'bg-gradient-to-r from-blue-500 to-cyan-600', 
-                  text: 'text-white',
-                  dot: 'bg-white',
-                  border: 'border-blue-300',
-                  glow: 'shadow-lg shadow-blue-500/30'
-                },
-                'Regular': { 
-                  bg: 'bg-gradient-to-r from-amber-500 to-orange-600', 
-                  text: 'text-white',
-                  dot: 'bg-white',
-                  border: 'border-amber-300',
-                  glow: 'shadow-lg shadow-amber-500/30'
-                },
-               };
-               const statusStyle = statusConfig[patient.condition] || statusConfig['Regular'];
-               
-               return (
-              <tr key={patient.id} className="hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 transition-all duration-200 group">
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center font-bold text-lg shadow-lg shadow-blue-500/30">
-                        {patient.name.charAt(0)}
+    );
+  };
+
+  // Modal de Traslados
+  const TransfersModal = () => {
+    if (!showTransfersModal || !selectedTransfersPatient) return null;
+    
+    // Filtrar traslados del paciente seleccionado
+    const patientTransfers = transferHistory.filter(t => t.patientId === selectedTransfersPatient.id);
+    
+    const handleClose = () => {
+      setShowTransfersModal(false);
+      setSelectedTransfersPatient(null);
+    };
+    
+    return (
+      <div 
+        className="fixed inset-0 flex items-center justify-center p-4 animate-fadeIn" 
+        style={{ zIndex: 99999, backgroundColor: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(8px)' }}
+        onClick={handleClose}
+      >
+        <div 
+          className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto animate-slideUp"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 px-6 py-5 flex items-center justify-between text-white shadow-lg">
+            <div className="flex items-center gap-3">
+              <Building2 size={28} />
+              <div>
+                <h2 className="text-2xl font-black">Historial de Traslados</h2>
+                <p className="text-white/90 text-sm mt-1">Paciente: {selectedTransfersPatient.name}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setShowTransfersModal(false);
+                setSelectedTransfersPatient(null);
+              }}
+              className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-all"
+            >
+              <X size={24} />
+            </button>
+          </div>
+
+          {/* Contenido */}
+          <div className="p-6">
+            {patientTransfers.length > 0 ? (
+              <div className="space-y-4">
+                {/* Timeline de Traslados */}
+                {patientTransfers
+                  .sort((a, b) => new Date(b.date) - new Date(a.date))
+                  .map((transfer, index) => {
+                    const transferDate = new Date(transfer.date);
+                    const isToday = transferDate.toDateString() === new Date().toDateString();
+                    
+                    return (
+                      <div key={index} className="relative pl-8 pb-6 border-l-4 border-indigo-200 last:pb-0">
+                        {/* Punto en la línea de tiempo */}
+                        <div className="absolute left-[-10px] top-0 w-5 h-5 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 border-4 border-white shadow-lg"></div>
+                        
+                        <div className="bg-gradient-to-br from-white to-indigo-50 rounded-xl p-5 shadow-md border-2 border-indigo-100 hover:shadow-lg transition-all">
+                          {/* Fecha y Hora */}
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <Clock size={16} className="text-indigo-600" />
+                              <span className="text-sm font-bold text-gray-900">
+                                {transferDate.toLocaleDateString('es-MX', {
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric'
+                                })}
+                              </span>
+                              <span className="text-sm text-gray-600">•</span>
+                              <span className="text-sm font-semibold text-indigo-600">
+                                {transferDate.toLocaleTimeString('es-MX', {
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </span>
+                            </div>
+                            {isToday && (
+                              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">
+                                HOY
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Movimiento */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div className="bg-red-50 rounded-lg p-3 border-2 border-red-200">
+                              <p className="text-xs font-semibold text-red-600 uppercase mb-1">Origen</p>
+                              <p className="text-sm font-bold text-gray-900">{transfer.from}</p>
+                            </div>
+                            <div className="bg-green-50 rounded-lg p-3 border-2 border-green-200">
+                              <p className="text-xs font-semibold text-green-600 uppercase mb-1">Destino</p>
+                              <p className="text-sm font-bold text-gray-900">{transfer.to}</p>
+                            </div>
+                          </div>
+
+                          {/* Motivo */}
+                          {transfer.reason && (
+                            <div className="bg-blue-50 rounded-lg p-3 border-2 border-blue-200 mb-3">
+                              <p className="text-xs font-semibold text-blue-600 uppercase mb-1">Motivo del Traslado</p>
+                              <p className="text-sm text-gray-800 font-medium">{transfer.reason}</p>
+                            </div>
+                          )}
+
+                          {/* Responsable */}
+                          <div className="flex items-center gap-2 text-sm">
+                            <User size={16} className="text-purple-600" />
+                            <span className="text-gray-600">Responsable:</span>
+                            <span className="font-bold text-gray-900">{transfer.nurse}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            ) : (
+              // Mensaje ERR-13
+              <div className="bg-gradient-to-br from-gray-50 to-blue-50 rounded-2xl border-2 border-gray-200 p-12 text-center">
+                <Building2 size={64} className="mx-auto text-gray-400 mb-4" />
+                <h3 className="text-2xl font-bold text-gray-700 mb-2">ERR-13</h3>
+                <p className="text-gray-600 font-medium">No hay traslados registrados para este paciente</p>
+                <p className="text-gray-500 text-sm mt-2">
+                  El paciente no ha sido trasladado desde su ingreso
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end">
+            <button
+              onClick={() => {
+                setShowTransfersModal(false);
+                setSelectedTransfersPatient(null);
+              }}
+              className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-xl hover:shadow-xl hover:scale-105 transition-all"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const PatientsListView = () => (
+    <div className="space-y-6 animate-fadeIn">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-2xl shadow-xl p-6 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-3xl font-black flex items-center gap-3">
+              <Users size={32} />
+              Lista de Pacientes Asignados
+            </h2>
+            <p className="text-blue-100 mt-2 text-sm font-medium">
+              Mostrando {patients.length} paciente(s) asignado(s) a su turno actual
+            </p>
+          </div>
+          <div className="bg-white/20 backdrop-blur-sm px-6 py-3 rounded-xl border-2 border-white/30">
+            <p className="text-sm font-semibold text-blue-100">Turno Actual</p>
+            <p className="text-2xl font-black">{currentShift?.name || 'No asignado'}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Grid de Tarjetas de Pacientes */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+        {patients.map((patient) => {
+          const location = getPatientLocation(patient.id);
+          const hasAllergies = patient.allergies && patient.allergies.trim() !== '';
+          
+          const statusConfig = {
+            'Crítico': { 
+              bg: 'from-red-500 to-rose-600', 
+              dot: 'bg-red-500',
+              ring: 'ring-red-200',
+              text: 'text-red-700'
+            },
+            'Estable': { 
+              bg: 'from-emerald-500 to-teal-600', 
+              dot: 'bg-emerald-500',
+              ring: 'ring-emerald-200',
+              text: 'text-emerald-700'
+            },
+            'Recuperación': { 
+              bg: 'from-blue-500 to-cyan-600', 
+              dot: 'bg-blue-500',
+              ring: 'ring-blue-200',
+              text: 'text-blue-700'
+            },
+            'Regular': { 
+              bg: 'from-amber-500 to-orange-600', 
+              dot: 'bg-amber-500',
+              ring: 'ring-amber-200',
+              text: 'text-amber-700'
+            },
+          };
+          const statusStyle = statusConfig[patient.condition] || statusConfig['Regular'];
+          
+          return (
+            <div 
+              key={patient.id}
+              className={`relative bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden border-2 ${hasAllergies ? 'border-red-500 ring-4 ring-red-200' : 'border-gray-200 hover:border-blue-300'}`}
+            >
+              {/* Alerta de Alergia - Franja Roja Superior */}
+              {hasAllergies && (
+                <div className="bg-gradient-to-r from-red-600 to-rose-600 px-4 py-3 flex items-center gap-2">
+                  <AlertCircle size={20} className="text-white animate-pulse" />
+                  <div className="flex-1">
+                    <p className="text-white font-bold text-sm">⚠️ ALERTA DE ALERGIA</p>
+                    <p className="text-red-100 text-xs font-medium">{patient.allergies}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Contenido de la Tarjeta */}
+              <div className="p-6">
+                {/* Identificación */}
+                <div className="flex items-start gap-4 mb-4">
+                  <div className={`w-16 h-16 rounded-xl bg-gradient-to-br ${statusStyle.bg} text-white flex items-center justify-center font-black text-2xl shadow-lg flex-shrink-0`}>
+                    {patient.name.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-xl font-bold text-gray-900 truncate">{patient.name}</h3>
+                    <div className="flex items-center gap-3 mt-1 text-sm text-gray-600">
+                      <span className="font-medium">CI: {patient.id.toString().padStart(8, '0')}</span>
+                      <span>•</span>
+                      <span>{patient.age} años</span>
+                      <span>•</span>
+                      <span>{patient.gender || 'N/D'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Ubicación */}
+                <div className="bg-blue-50 rounded-xl p-4 mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Building2 size={18} className="text-blue-600" />
+                    <p className="text-xs font-bold text-blue-600 uppercase">Ubicación</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <p className="text-gray-500 text-xs">Habitación</p>
+                      <p className="font-bold text-gray-900">{location.room}</p>
                     </div>
                     <div>
-                        <div className="font-bold text-gray-800">{patient.name}</div>
-                        <div className="text-xs text-gray-600">ID: #{patient.id.toString().padStart(4, '0')}</div>
+                      <p className="text-gray-500 text-xs">Cama</p>
+                      <p className="font-bold text-gray-900">{location.bed}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-gray-500 text-xs">Área</p>
+                      <p className="font-bold text-gray-900">Piso {location.floor} - {location.area}</p>
                     </div>
                   </div>
-                </td>
-                <td className="px-6 py-4">
-                  <div>
-                    <div className="flex items-center gap-2 text-gray-700 font-medium">
-                      <Building2 size={16} className="text-blue-500" /> 
-                      <span>Piso {location.floor} - Hab. {location.room}</span>
-                    </div>
-                    <div className="text-xs text-gray-600 mt-1">{location.area} • Cama {location.bed}</div>
-                    {recentTransfer && (
-                      <div className="mt-2 inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold">
-                        <Activity size={12} className="animate-pulse" /> Trasladado recientemente
-                      </div>
-                    )}
+                </div>
+
+                {/* Diagnóstico */}
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Stethoscope size={18} className="text-purple-600" />
+                    <p className="text-xs font-bold text-purple-600 uppercase">Diagnóstico Principal</p>
                   </div>
-                </td>
-                <td className="px-6 py-4">
-                  <div className="text-sm text-gray-700">
-                    <span className="font-medium">{patient.age} años</span> • Tipo {patient.bloodType}
+                  <p className="text-sm text-gray-700 font-medium">
+                    {patient.primary_diagnosis || 'No especificado'}
+                  </p>
+                </div>
+
+                {/* Estado y Acción */}
+                <div className="pt-4 border-t border-gray-200 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full ${statusStyle.dot} animate-pulse`}></div>
+                    <span className={`text-sm font-bold ${statusStyle.text}`}>{patient.condition}</span>
                   </div>
-                  {patient.allergies && <div className="text-xs text-red-600 mt-1 font-medium flex items-center gap-1 bg-red-50 px-2 py-0.5 rounded-full inline-flex"><AlertCircle size={12}/> Alergias: {patient.allergies}</div>}
-                </td>
-                <td className="px-6 py-4">
-                  <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${statusStyle.bg} ${statusStyle.text} ${statusStyle.glow} inline-flex items-center gap-1.5`}>
-                    <div className={`w-2 h-2 rounded-full ${statusStyle.dot} animate-pulse`}></div>
-                    {patient.condition}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-right">
-                  <button 
-                    onClick={() => { setSelectedPatientId(patient.id); setActiveTab('care'); }}
-                    className="inline-flex items-center gap-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm font-bold rounded-xl hover:shadow-xl hover:shadow-purple-500/50 hover:scale-105 transition-all duration-200 group"
-                  >
-                    Gestionar Cuidados <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
-                  </button>
-                </td>
-              </tr>
-            )})}
-          </tbody>
-        </table>
+                  
+                  {/* Botones de Acción */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => { 
+                        setSelectedTriagePatient(patient);
+                        setShowTriageModal(true);
+                      }}
+                      className="px-3 py-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-bold rounded-lg hover:shadow-xl hover:scale-105 transition-all duration-200 flex items-center justify-center gap-1"
+                    >
+                      <AlertCircle size={14} />
+                      Ver Triaje
+                    </button>
+                    <button 
+                      onClick={() => { 
+                        setSelectedTransfersPatient(patient);
+                        setShowTransfersModal(true);
+                      }}
+                      className="px-3 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-xs font-bold rounded-lg hover:shadow-xl hover:scale-105 transition-all duration-200 flex items-center justify-center gap-1"
+                    >
+                      <Building2 size={14} />
+                      Ver Traslados
+                    </button>
+                    <button 
+                      onClick={() => { 
+                        setSelectedPatientId(patient.id); 
+                        setActiveTab('care'); 
+                      }}
+                      className="col-span-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 text-white text-sm font-bold rounded-xl hover:shadow-xl hover:scale-105 transition-all duration-200 flex items-center justify-center gap-2"
+                    >
+                      Ver Detalles Completos
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
+
+      {/* Mensaje si no hay pacientes */}
+      {patients.length === 0 && (
+        <div className="bg-gradient-to-br from-gray-50 to-blue-50 rounded-2xl border-2 border-gray-200 p-12 text-center">
+          <Users size={64} className="mx-auto text-gray-400 mb-4" />
+          <h3 className="text-2xl font-bold text-gray-700 mb-2">No hay pacientes asignados</h3>
+          <p className="text-gray-600">No tiene pacientes asignados para su turno actual</p>
+        </div>
+      )}
     </div>
   );
 
@@ -1859,7 +2242,7 @@ const NurseDashboard = ({ user, onLogout }) => {
       
       {/* Modal de Alerta de Alergia */}
       {showAllergyWarning && allergyAlert && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 animate-fadeIn">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4 animate-fadeIn">
           <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
             {/* Header */}
             <div className={`${getSeverityColors(allergyAlert.warning?.severity).alert} p-6 border-b-4 ${getSeverityColors(allergyAlert.warning?.severity).border}`}>
@@ -1995,7 +2378,7 @@ const NurseDashboard = ({ user, onLogout }) => {
       
       {/* Modal de Edición de Nota */}
       {showEditNoteModal && editingNote && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 animate-fadeIn">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4 animate-fadeIn">
           <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
             {/* Header */}
             <div className="bg-gradient-to-r from-purple-600 to-indigo-600 p-6 border-b-4 border-purple-700">
@@ -2179,7 +2562,7 @@ const NurseDashboard = ({ user, onLogout }) => {
 
       {/* Modal de Historial de Ediciones */}
       {showNoteHistoryModal && selectedNoteHistory && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 animate-fadeIn">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4 animate-fadeIn">
           <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
             {/* Header */}
             <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 border-b-4 border-blue-700">
@@ -2331,9 +2714,2219 @@ const NurseDashboard = ({ user, onLogout }) => {
     </div>
   );};
 
+  // --- NUEVOS COMPONENTES DE VISTA ---
+  
+  // Vista de Pacientes Asignados - Lista de trabajo del día
+  const AssignedPatientsView = () => (
+    <div className="space-y-6 animate-fadeIn">
+      <div className="bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 rounded-2xl shadow-xl border-2 border-emerald-200 p-8">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg">
+            <Users size={32} className="text-white" strokeWidth={2.5} />
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-gray-800">Pacientes Asignados</h2>
+            <p className="text-lg text-gray-600 font-medium">Su lista de trabajo del día • {patients.length} pacientes</p>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {patients.map(patient => {
+            const loc = getPatientLocation(patient.id);
+            return (
+              <div key={patient.id} className="bg-white p-6 rounded-xl border-2 border-emerald-200 shadow-md hover:shadow-xl transition-all cursor-pointer hover:scale-105" onClick={() => { setSelectedPatientId(patient.id); setActiveTab('care'); }}>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-xl shadow-md">
+                    {patient.name.charAt(0)}
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-bold text-gray-800 text-lg">{patient.name}</h3>
+                    <p className="text-sm text-gray-600">{patient.age} años • {patient.bloodType}</p>
+                  </div>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Building2 size={14} className="text-emerald-600" />
+                    <span className="text-gray-700 font-medium">Piso {loc.floor} - {loc.area}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Bed size={14} className="text-emerald-600" />
+                    <span className="text-gray-700 font-medium">Hab. {loc.room} - Cama {loc.bed}</span>
+                  </div>
+                  <div className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${
+                    patient.condition === 'Crítico' ? 'bg-red-100 text-red-700' :
+                    patient.condition === 'Estable' ? 'bg-green-100 text-green-700' :
+                    'bg-yellow-100 text-yellow-700'
+                  }`}>
+                    {patient.condition}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Vista de Registro Clínico - Formularios para documentar atención
+  const ClinicalRecordView = () => {
+    const [selectedClinicalPatient, setSelectedClinicalPatient] = useState('');
+    const [vitalSignsForm, setVitalSignsForm] = useState({
+      bloodPressureSystolic: '',
+      bloodPressureDiastolic: '',
+      heartRate: '',
+      respiratoryRate: '',
+      temperature: '',
+      oxygenSaturation: '',
+      glucose: '',
+      painLevel: ''
+    });
+    const [validationErrors, setValidationErrors] = useState({});
+    const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+    
+    // Estados para Notas Evolutivas SOAP
+    const [selectedSOAPPatient, setSelectedSOAPPatient] = useState('');
+    const [soapForm, setSOAPForm] = useState({
+      subjective: '',
+      objective: '',
+      analysis: '',
+      plan: ''
+    });
+    const [showSOAPSuccess, setShowSOAPSuccess] = useState(false);
+    const [showSOAPConfirm, setShowSOAPConfirm] = useState(false);
+    
+    // Estados para Administración de Medicamentos (ECU-09)
+    const [selectedMedPatient, setSelectedMedPatient] = useState('');
+    const [medicationForm, setMedicationForm] = useState({
+      medication: '',
+      dose: '',
+      route: '',
+      observations: ''
+    });
+    const [pharmacyInventory, setPharmacyInventory] = useState([]);
+    const [allergyAlert, setAllergyAlert] = useState(null);
+    const [stockError, setStockError] = useState(null);
+    const [showFiveRights, setShowFiveRights] = useState(false);
+    const [showMedSuccess, setShowMedSuccess] = useState(false);
+    
+    // Cargar inventario de farmacia
+    useEffect(() => {
+      const loadPharmacy = async () => {
+        const items = await getAllPharmacyItems();
+        setPharmacyInventory(items);
+      };
+      loadPharmacy();
+    }, []);
+    
+    // Estados para Formatos Digitales (ECU-13)
+    const [activeDigitalForm, setActiveDigitalForm] = useState('balance');
+    const [selectedFormPatient, setSelectedFormPatient] = useState('');
+    
+    // A. Balance Hídrico
+    const [balanceForm, setBalanceForm] = useState({
+      oralIntake: '',
+      ivIntake: '',
+      urineOutput: '',
+      drainageOutput: '',
+      observations: ''
+    });
+    const [showBalanceSuccess, setShowBalanceSuccess] = useState(false);
+    
+    // B. Valoración de Dolor
+    const [painForm, setPainForm] = useState({
+      intensity: '',
+      location: '',
+      painType: '',
+      triggers: '',
+      treatment: ''
+    });
+    const [showPainSuccess, setShowPainSuccess] = useState(false);
+    
+    // C. Valoración de Riesgo de Caídas
+    const [fallRiskForm, setFallRiskForm] = useState({
+      over65: '',
+      fallHistory: '',
+      gaitAlteration: '',
+      riskMedication: '',
+      preventiveMeasures: []
+    });
+    const [showFallRiskSuccess, setShowFallRiskSuccess] = useState(false);
+    
+    // D. Registro de Cuidados de Heridas
+    const [woundForm, setWoundForm] = useState({
+      location: '',
+      length: '',
+      width: '',
+      appearance: '',
+      exudateType: '',
+      treatment: '',
+      materials: ''
+    });
+    const [showWoundSuccess, setShowWoundSuccess] = useState(false);
+    
+    // E. Consentimiento Informado
+    const [consentForm, setConsentForm] = useState({
+      procedure: '',
+      risks: '',
+      understands: '',
+      consentGiven: ''
+    });
+    const [showConsentSuccess, setShowConsentSuccess] = useState(false);
+    const [showConsentConfirm, setShowConsentConfirm] = useState(false);
+    
+    // Función de validación de rangos (RN-02)
+    const validateVitalSigns = () => {
+      const errors = {};
+      
+      // Presión Arterial Sistólica (90-250 mmHg)
+      if (vitalSignsForm.bloodPressureSystolic) {
+        const systolic = parseFloat(vitalSignsForm.bloodPressureSystolic);
+        if (isNaN(systolic) || systolic < 50 || systolic > 300) {
+          errors.bloodPressureSystolic = 'La presión sistólica debe estar entre 50-300 mmHg';
+        }
+      }
+      
+      // Presión Arterial Diastólica (40-150 mmHg)
+      if (vitalSignsForm.bloodPressureDiastolic) {
+        const diastolic = parseFloat(vitalSignsForm.bloodPressureDiastolic);
+        if (isNaN(diastolic) || diastolic < 30 || diastolic > 200) {
+          errors.bloodPressureDiastolic = 'La presión diastólica debe estar entre 30-200 mmHg';
+        }
+      }
+      
+      // Frecuencia Cardíaca (30-250 lpm)
+      if (vitalSignsForm.heartRate) {
+        const hr = parseFloat(vitalSignsForm.heartRate);
+        if (isNaN(hr) || hr < 30 || hr > 250) {
+          errors.heartRate = 'La frecuencia cardíaca debe estar entre 30-250 lpm';
+        }
+      }
+      
+      // Frecuencia Respiratoria (8-60 rpm)
+      if (vitalSignsForm.respiratoryRate) {
+        const rr = parseFloat(vitalSignsForm.respiratoryRate);
+        if (isNaN(rr) || rr < 8 || rr > 60) {
+          errors.respiratoryRate = 'La frecuencia respiratoria debe estar entre 8-60 rpm';
+        }
+      }
+      
+      // Temperatura (35-42°C)
+      if (vitalSignsForm.temperature) {
+        const temp = parseFloat(vitalSignsForm.temperature);
+        if (isNaN(temp) || temp < 35 || temp > 42) {
+          errors.temperature = 'La temperatura debe estar entre 35-42°C (revise si ingresó 375 en lugar de 37.5)';
+        }
+      }
+      
+      // Saturación de Oxígeno (70-100%)
+      if (vitalSignsForm.oxygenSaturation) {
+        const sat = parseFloat(vitalSignsForm.oxygenSaturation);
+        if (isNaN(sat) || sat < 70 || sat > 100) {
+          errors.oxygenSaturation = 'La saturación de oxígeno debe estar entre 70-100%';
+        }
+      }
+      
+      // Glucosa (20-600 mg/dL) - Opcional
+      if (vitalSignsForm.glucose) {
+        const gluc = parseFloat(vitalSignsForm.glucose);
+        if (isNaN(gluc) || gluc < 20 || gluc > 600) {
+          errors.glucose = 'La glucosa debe estar entre 20-600 mg/dL';
+        }
+      }
+      
+      // Nivel de Dolor EVA (0-10) - Opcional
+      if (vitalSignsForm.painLevel) {
+        const pain = parseFloat(vitalSignsForm.painLevel);
+        if (isNaN(pain) || pain < 0 || pain > 10) {
+          errors.painLevel = 'El nivel de dolor debe estar entre 0-10';
+        }
+      }
+      
+      setValidationErrors(errors);
+      return Object.keys(errors).length === 0;
+    };
+    
+    const handleSaveVitalSigns = async () => {
+      // Validar que haya un paciente seleccionado
+      if (!selectedClinicalPatient) {
+        alert('Debe seleccionar un paciente');
+        return;
+      }
+      
+      // Validar campos obligatorios
+      if (!vitalSignsForm.bloodPressureSystolic || !vitalSignsForm.bloodPressureDiastolic || 
+          !vitalSignsForm.heartRate || !vitalSignsForm.respiratoryRate || 
+          !vitalSignsForm.temperature || !vitalSignsForm.oxygenSaturation) {
+        alert('Debe completar todos los campos obligatorios');
+        return;
+      }
+      
+      // Validar rangos
+      if (!validateVitalSigns()) {
+        return;
+      }
+      
+      // Guardar signos vitales
+      const bloodPressure = `${vitalSignsForm.bloodPressureSystolic}/${vitalSignsForm.bloodPressureDiastolic}`;
+      await addVitalSignsDB(
+        selectedClinicalPatient,
+        new Date().toISOString(),
+        vitalSignsForm.temperature,
+        bloodPressure,
+        vitalSignsForm.heartRate,
+        vitalSignsForm.respiratoryRate,
+        user.name
+      );
+      
+      // Mostrar mensaje de éxito MSG-04
+      setShowSuccessMessage(true);
+      setTimeout(() => setShowSuccessMessage(false), 3000);
+      
+      // Limpiar formulario
+      setVitalSignsForm({
+        bloodPressureSystolic: '',
+        bloodPressureDiastolic: '',
+        heartRate: '',
+        respiratoryRate: '',
+        temperature: '',
+        oxygenSaturation: '',
+        glucose: '',
+        painLevel: ''
+      });
+      setSelectedClinicalPatient('');
+      setValidationErrors({});
+    };
+    
+    // Función para guardar nota SOAP con confirmación MSG-03
+    const handleSaveSOAPNote = () => {
+      // Validar que haya un paciente seleccionado
+      if (!selectedSOAPPatient) {
+        alert('Debe seleccionar un paciente');
+        return;
+      }
+      
+      // Validar campos obligatorios
+      if (!soapForm.subjective || !soapForm.objective || !soapForm.analysis || !soapForm.plan) {
+        alert('Debe completar todos los campos del formato SOAP');
+        return;
+      }
+      
+      // Mostrar confirmación MSG-03
+      setShowSOAPConfirm(true);
+    };
+    
+    // Confirmar y guardar nota SOAP
+    const confirmSaveSOAPNote = async () => {
+      const soapNote = `NOTA EVOLUTIVA - FORMATO SOAP\n\n` +
+                       `S (SUBJETIVO):\n${soapForm.subjective}\n\n` +
+                       `O (OBJETIVO):\n${soapForm.objective}\n\n` +
+                       `A (ANÁLISIS):\n${soapForm.analysis}\n\n` +
+                       `P (PLAN):\n${soapForm.plan}`;
+      
+      await createNurseNote({
+        patientId: selectedSOAPPatient,
+        date: new Date().toISOString(),
+        note: soapNote,
+        noteType: 'evolutiva_soap',
+        nurseName: user.name,
+        userId: user.id
+      });
+      
+      // Cerrar confirmación y mostrar éxito
+      setShowSOAPConfirm(false);
+      setShowSOAPSuccess(true);
+      setTimeout(() => setShowSOAPSuccess(false), 3000);
+      
+      // Limpiar formulario
+      setSOAPForm({
+        subjective: '',
+        objective: '',
+        analysis: '',
+        plan: ''
+      });
+      setSelectedSOAPPatient('');
+      
+      // Recargar notas
+      await refreshNotes();
+    };
+    
+    // Función para verificar si una nota es editable (RN-07: 24 horas)
+    const isNoteEditable = (noteDate) => {
+      const noteTime = new Date(noteDate).getTime();
+      const currentTime = new Date().getTime();
+      const hoursDiff = (currentTime - noteTime) / (1000 * 60 * 60);
+      return hoursDiff <= 24;
+    };
+    
+    // Función para validar medicamento seleccionado (RN-05 y RN-10)
+    const handleMedicationSelect = (medicationId) => {
+      setMedicationForm({...medicationForm, medication: medicationId});
+      setAllergyAlert(null);
+      setStockError(null);
+      
+      if (!selectedMedPatient || !medicationId) return;
+      
+      // Buscar el medicamento en el inventario
+      const selectedMed = pharmacyInventory.find(m => m.id === parseInt(medicationId));
+      if (!selectedMed) return;
+      
+      // RN-10: Verificar stock
+      if (selectedMed.quantity === 0) {
+        setStockError(`RN-10: Sin stock suficiente de ${selectedMed.medication_name}`);
+        return;
+      }
+      
+      // RN-05: Validar alergias
+      const patient = patients.find(p => p.id === parseInt(selectedMedPatient));
+      if (patient) {
+        const validation = validateMedicationForPatient(selectedMed.medication_name, patient);
+        if (!validation.valid) {
+          setAllergyAlert({
+            medication: selectedMed.medication_name,
+            patient: patient.name,
+            allergies: patient.allergies,
+            warning: validation.warning
+          });
+        }
+      }
+    };
+    
+    // Función para mostrar los 5 Correctos antes de guardar
+    const handleShowFiveRights = () => {
+      // Validar campos obligatorios
+      if (!selectedMedPatient || !medicationForm.medication || !medicationForm.dose || !medicationForm.route) {
+        alert('Debe completar todos los campos obligatorios');
+        return;
+      }
+      
+      // Verificar que no haya alertas críticas
+      if (allergyAlert) {
+        alert('No puede administrar este medicamento debido a alergias del paciente');
+        return;
+      }
+      
+      if (stockError) {
+        alert('No puede administrar este medicamento debido a falta de stock');
+        return;
+      }
+      
+      setShowFiveRights(true);
+    };
+    
+    // Función para guardar la administración de medicamento
+    const confirmMedicationAdministration = async () => {
+      const selectedMed = pharmacyInventory.find(m => m.id === parseInt(medicationForm.medication));
+      const patient = patients.find(p => p.id === parseInt(selectedMedPatient));
+      
+      await addTreatmentDB({
+        patientId: selectedMedPatient,
+        medication: selectedMed.medication_name,
+        dose: medicationForm.dose,
+        frequency: 'Única vez',
+        startDate: new Date().toISOString(),
+        appliedBy: user.name,
+        lastApplication: new Date().toISOString(),
+        responsibleDoctor: '',
+        administrationTimes: medicationForm.route,
+        status: 'Completado',
+        notes: medicationForm.observations || ''
+      });
+      
+      // Cerrar modal y mostrar éxito
+      setShowFiveRights(false);
+      setShowMedSuccess(true);
+      setTimeout(() => setShowMedSuccess(false), 3000);
+      
+      // Limpiar formulario
+      setMedicationForm({
+        medication: '',
+        dose: '',
+        route: '',
+        observations: ''
+      });
+      setSelectedMedPatient('');
+      setAllergyAlert(null);
+      setStockError(null);
+    };
+    
+    // Funciones de guardado para Formatos Digitales (ECU-13)
+    
+    // A. Guardar Balance Hídrico
+    const handleSaveBalance = async () => {
+      if (!selectedFormPatient || !balanceForm.oralIntake || !balanceForm.ivIntake || !balanceForm.urineOutput || !balanceForm.drainageOutput) {
+        alert('Debe completar todos los campos obligatorios del Balance Hídrico');
+        return;
+      }
+      
+      const balanceNote = `BALANCE HÍDRICO\n\n` +
+                          `INGRESOS:\n` +
+                          `- Vía Oral: ${balanceForm.oralIntake} ml\n` +
+                          `- Vía Intravenosa: ${balanceForm.ivIntake} ml\n` +
+                          `- TOTAL INGRESOS: ${parseInt(balanceForm.oralIntake) + parseInt(balanceForm.ivIntake)} ml\n\n` +
+                          `EGRESOS:\n` +
+                          `- Diuresis: ${balanceForm.urineOutput} ml\n` +
+                          `- Drenajes: ${balanceForm.drainageOutput} ml\n` +
+                          `- TOTAL EGRESOS: ${parseInt(balanceForm.urineOutput) + parseInt(balanceForm.drainageOutput)} ml\n\n` +
+                          `BALANCE: ${(parseInt(balanceForm.oralIntake) + parseInt(balanceForm.ivIntake)) - (parseInt(balanceForm.urineOutput) + parseInt(balanceForm.drainageOutput))} ml\n\n` +
+                          `OBSERVACIONES: ${balanceForm.observations || 'Ninguna'}`;
+      
+      await createNurseNote({
+        patientId: selectedFormPatient,
+        date: new Date().toISOString(),
+        note: balanceNote,
+        noteType: 'balance_hidrico',
+        nurseName: user.name,
+        userId: user.id
+      });
+      
+      setShowBalanceSuccess(true);
+      setTimeout(() => setShowBalanceSuccess(false), 3000);
+      setBalanceForm({ oralIntake: '', ivIntake: '', urineOutput: '', drainageOutput: '', observations: '' });
+      await refreshNotes();
+    };
+    
+    // B. Guardar Valoración de Dolor
+    const handleSavePain = async () => {
+      if (!selectedFormPatient || !painForm.intensity || !painForm.location || !painForm.painType) {
+        alert('Debe completar todos los campos obligatorios de Valoración de Dolor');
+        return;
+      }
+      
+      const painNote = `VALORACIÓN DE DOLOR (EVA)\n\n` +
+                       `Intensidad: ${painForm.intensity}/10\n` +
+                       `Localización: ${painForm.location}\n` +
+                       `Tipo de Dolor: ${painForm.painType}\n` +
+                       `Factores Desencadenantes: ${painForm.triggers || 'No especificado'}\n` +
+                       `Tratamiento Aplicado: ${painForm.treatment || 'Ninguno'}`;
+      
+      await createNurseNote({
+        patientId: selectedFormPatient,
+        date: new Date().toISOString(),
+        note: painNote,
+        noteType: 'valoracion_dolor',
+        nurseName: user.name,
+        userId: user.id
+      });
+      
+      setShowPainSuccess(true);
+      setTimeout(() => setShowPainSuccess(false), 3000);
+      setPainForm({ intensity: '', location: '', painType: '', triggers: '', treatment: '' });
+      await refreshNotes();
+    };
+    
+    // C. Guardar Valoración de Riesgo de Caídas
+    const handleSaveFallRisk = async () => {
+      if (!selectedFormPatient || !fallRiskForm.over65 || !fallRiskForm.fallHistory || !fallRiskForm.gaitAlteration || !fallRiskForm.riskMedication) {
+        alert('Debe completar todos los campos obligatorios de Valoración de Riesgo de Caídas');
+        return;
+      }
+      
+      const riskScore = 
+        (fallRiskForm.over65 === 'si' ? 1 : 0) +
+        (fallRiskForm.fallHistory === 'si' ? 1 : 0) +
+        (fallRiskForm.gaitAlteration === 'si' ? 1 : 0) +
+        (fallRiskForm.riskMedication === 'si' ? 1 : 0);
+      
+      const riskLevel = riskScore === 0 ? 'BAJO' : riskScore <= 2 ? 'MODERADO' : 'ALTO';
+      
+      const fallRiskNote = `VALORACIÓN DE RIESGO DE CAÍDAS\n\n` +
+                           `¿Mayor de 65 años?: ${fallRiskForm.over65.toUpperCase()}\n` +
+                           `¿Historia de caídas?: ${fallRiskForm.fallHistory.toUpperCase()}\n` +
+                           `¿Alteración de la marcha?: ${fallRiskForm.gaitAlteration.toUpperCase()}\n` +
+                           `¿Medicación de riesgo?: ${fallRiskForm.riskMedication.toUpperCase()}\n\n` +
+                           `PUNTUACIÓN: ${riskScore}/4\n` +
+                           `NIVEL DE RIESGO: ${riskLevel}\n\n` +
+                           `MEDIDAS PREVENTIVAS APLICADAS:\n${fallRiskForm.preventiveMeasures.length > 0 ? fallRiskForm.preventiveMeasures.join('\n') : 'Ninguna'}`;
+      
+      await createNurseNote({
+        patientId: selectedFormPatient,
+        date: new Date().toISOString(),
+        note: fallRiskNote,
+        noteType: 'riesgo_caidas',
+        nurseName: user.name,
+        userId: user.id
+      });
+      
+      setShowFallRiskSuccess(true);
+      setTimeout(() => setShowFallRiskSuccess(false), 3000);
+      setFallRiskForm({ over65: '', fallHistory: '', gaitAlteration: '', riskMedication: '', preventiveMeasures: [] });
+      await refreshNotes();
+    };
+    
+    // D. Guardar Cuidados de Heridas
+    const handleSaveWound = async () => {
+      if (!selectedFormPatient || !woundForm.location || !woundForm.length || !woundForm.width || !woundForm.appearance || !woundForm.exudateType || !woundForm.treatment || !woundForm.materials) {
+        alert('Debe completar todos los campos obligatorios de Cuidados de Heridas');
+        return;
+      }
+      
+      const woundNote = `REGISTRO DE CUIDADOS DE HERIDAS\n\n` +
+                        `LOCALIZACIÓN Y TAMAÑO:\n` +
+                        `- Ubicación: ${woundForm.location}\n` +
+                        `- Dimensiones: ${woundForm.length} cm x ${woundForm.width} cm\n\n` +
+                        `CARACTERÍSTICAS:\n` +
+                        `- Aspecto: ${woundForm.appearance}\n` +
+                        `- Tipo de Exudado: ${woundForm.exudateType}\n\n` +
+                        `INTERVENCIÓN:\n` +
+                        `- Cura Realizada: ${woundForm.treatment}\n` +
+                        `- Material Utilizado: ${woundForm.materials}`;
+      
+      await createNurseNote({
+        patientId: selectedFormPatient,
+        date: new Date().toISOString(),
+        note: woundNote,
+        noteType: 'cuidado_heridas',
+        nurseName: user.name,
+        userId: user.id
+      });
+      
+      setShowWoundSuccess(true);
+      setTimeout(() => setShowWoundSuccess(false), 3000);
+      setWoundForm({ location: '', length: '', width: '', appearance: '', exudateType: '', treatment: '', materials: '' });
+      await refreshNotes();
+    };
+    
+    // E. Guardar Consentimiento Informado (con confirmación legal)
+    const handleSaveConsent = () => {
+      if (!selectedFormPatient || !consentForm.procedure || !consentForm.risks || !consentForm.understands || !consentForm.consentGiven) {
+        alert('Debe completar todos los campos obligatorios del Consentimiento Informado');
+        return;
+      }
+      
+      setShowConsentConfirm(true);
+    };
+    
+    const confirmSaveConsent = async () => {
+      const timestamp = new Date().toISOString();
+      const consentNote = `CONSENTIMIENTO INFORMADO - DOCUMENTO LEGAL\n\n` +
+                          `PROCEDIMIENTO: ${consentForm.procedure}\n\n` +
+                          `RIESGOS EXPLICADOS:\n${consentForm.risks}\n\n` +
+                          `¿PACIENTE COMPRENDE?: ${consentForm.understands}\n` +
+                          `¿CONSENTIMIENTO OTORGADO?: ${consentForm.consentGiven}\n\n` +
+                          `FECHA Y HORA DE REGISTRO (INMUTABLE): ${new Date(timestamp).toLocaleString('es-ES', { dateStyle: 'full', timeStyle: 'long' })}\n` +
+                          `ENFERMERO/A RESPONSABLE: ${user.name}`;
+      
+      await createNurseNote({
+        patientId: selectedFormPatient,
+        date: timestamp,
+        note: consentNote,
+        noteType: 'consentimiento_informado',
+        nurseName: user.name,
+        userId: user.id
+      });
+      
+      setShowConsentConfirm(false);
+      setShowConsentSuccess(true);
+      setTimeout(() => setShowConsentSuccess(false), 3000);
+      setConsentForm({ procedure: '', risks: '', understands: '', consentGiven: '' });
+      await refreshNotes();
+    };
+    
+    return (
+      <div className="space-y-6 animate-fadeIn">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-2xl shadow-xl p-6 text-white">
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
+              <FileText size={32} strokeWidth={2.5} />
+            </div>
+            <div>
+              <h2 className="text-3xl font-black">Registro Clínico del Turno</h2>
+              <p className="text-blue-100 mt-1">Documentación de la atención de enfermería</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Mensaje de Éxito MSG-04 */}
+        {showSuccessMessage && (
+          <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl p-4 text-white shadow-lg animate-fadeIn flex items-center gap-3">
+            <CheckCircle size={24} />
+            <p className="font-bold">MSG-04: Signos vitales guardados correctamente</p>
+          </div>
+        )}
+
+        {/* Formulario de Signos Vitales */}
+        <div className="bg-white rounded-2xl shadow-xl border-2 border-blue-200 overflow-hidden">
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-6 py-4 border-b-2 border-blue-200">
+            <div className="flex items-center gap-3">
+              <Heart size={24} className="text-blue-600" />
+              <h3 className="text-2xl font-bold text-gray-800">Registrar Signos Vitales</h3>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-6">
+            {/* Selección de Paciente */}
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                Seleccionar Paciente *
+              </label>
+              <select
+                value={selectedClinicalPatient}
+                onChange={(e) => setSelectedClinicalPatient(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all font-medium"
+              >
+                <option value="">-- Seleccione un paciente --</option>
+                {patients.map(patient => (
+                  <option key={patient.id} value={patient.id}>
+                    {patient.name} - Hab. {patient.room} / Cama {patient.bed}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Campos Obligatorios */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Presión Arterial */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Presión Arterial (mmHg) *
+                </label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="number"
+                    placeholder="Sistólica"
+                    value={vitalSignsForm.bloodPressureSystolic}
+                    onChange={(e) => setVitalSignsForm({...vitalSignsForm, bloodPressureSystolic: e.target.value})}
+                    className={`flex-1 px-4 py-3 border-2 rounded-xl focus:ring-2 outline-none transition-all ${
+                      validationErrors.bloodPressureSystolic 
+                        ? 'border-red-500 focus:border-red-500 focus:ring-red-200' 
+                        : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
+                    }`}
+                  />
+                  <span className="text-gray-600 font-bold">/</span>
+                  <input
+                    type="number"
+                    placeholder="Diastólica"
+                    value={vitalSignsForm.bloodPressureDiastolic}
+                    onChange={(e) => setVitalSignsForm({...vitalSignsForm, bloodPressureDiastolic: e.target.value})}
+                    className={`flex-1 px-4 py-3 border-2 rounded-xl focus:ring-2 outline-none transition-all ${
+                      validationErrors.bloodPressureDiastolic 
+                        ? 'border-red-500 focus:border-red-500 focus:ring-red-200' 
+                        : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
+                    }`}
+                  />
+                </div>
+                {(validationErrors.bloodPressureSystolic || validationErrors.bloodPressureDiastolic) && (
+                  <p className="text-red-600 text-sm mt-1 font-medium flex items-center gap-1">
+                    <AlertCircle size={14} />
+                    {validationErrors.bloodPressureSystolic || validationErrors.bloodPressureDiastolic}
+                  </p>
+                )}
+              </div>
+
+              {/* Frecuencia Cardíaca */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Frecuencia Cardíaca (lpm) *
+                </label>
+                <input
+                  type="number"
+                  placeholder="Ej: 72"
+                  value={vitalSignsForm.heartRate}
+                  onChange={(e) => setVitalSignsForm({...vitalSignsForm, heartRate: e.target.value})}
+                  className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-2 outline-none transition-all ${
+                    validationErrors.heartRate 
+                      ? 'border-red-500 focus:border-red-500 focus:ring-red-200' 
+                      : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
+                  }`}
+                />
+                {validationErrors.heartRate && (
+                  <p className="text-red-600 text-sm mt-1 font-medium flex items-center gap-1">
+                    <AlertCircle size={14} />
+                    {validationErrors.heartRate}
+                  </p>
+                )}
+              </div>
+
+              {/* Frecuencia Respiratoria */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Frecuencia Respiratoria (rpm) *
+                </label>
+                <input
+                  type="number"
+                  placeholder="Ej: 18"
+                  value={vitalSignsForm.respiratoryRate}
+                  onChange={(e) => setVitalSignsForm({...vitalSignsForm, respiratoryRate: e.target.value})}
+                  className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-2 outline-none transition-all ${
+                    validationErrors.respiratoryRate 
+                      ? 'border-red-500 focus:border-red-500 focus:ring-red-200' 
+                      : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
+                  }`}
+                />
+                {validationErrors.respiratoryRate && (
+                  <p className="text-red-600 text-sm mt-1 font-medium flex items-center gap-1">
+                    <AlertCircle size={14} />
+                    {validationErrors.respiratoryRate}
+                  </p>
+                )}
+              </div>
+
+              {/* Temperatura */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Temperatura (°C) *
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder="Ej: 37.5"
+                  value={vitalSignsForm.temperature}
+                  onChange={(e) => setVitalSignsForm({...vitalSignsForm, temperature: e.target.value})}
+                  className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-2 outline-none transition-all ${
+                    validationErrors.temperature 
+                      ? 'border-red-500 focus:border-red-500 focus:ring-red-200' 
+                      : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
+                  }`}
+                />
+                {validationErrors.temperature && (
+                  <p className="text-red-600 text-sm mt-1 font-medium flex items-center gap-1">
+                    <AlertCircle size={14} />
+                    {validationErrors.temperature}
+                  </p>
+                )}
+              </div>
+
+              {/* Saturación de Oxígeno */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Saturación de Oxígeno (%) *
+                </label>
+                <input
+                  type="number"
+                  placeholder="Ej: 98"
+                  value={vitalSignsForm.oxygenSaturation}
+                  onChange={(e) => setVitalSignsForm({...vitalSignsForm, oxygenSaturation: e.target.value})}
+                  className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-2 outline-none transition-all ${
+                    validationErrors.oxygenSaturation 
+                      ? 'border-red-500 focus:border-red-500 focus:ring-red-200' 
+                      : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
+                  }`}
+                />
+                {validationErrors.oxygenSaturation && (
+                  <p className="text-red-600 text-sm mt-1 font-medium flex items-center gap-1">
+                    <AlertCircle size={14} />
+                    {validationErrors.oxygenSaturation}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Campos Opcionales */}
+            <div className="border-t-2 border-gray-200 pt-6">
+              <h4 className="text-lg font-bold text-gray-700 mb-4">Campos Opcionales</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Glucosa */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Glucosa (mg/dL)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="Ej: 110"
+                    value={vitalSignsForm.glucose}
+                    onChange={(e) => setVitalSignsForm({...vitalSignsForm, glucose: e.target.value})}
+                    className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-2 outline-none transition-all ${
+                      validationErrors.glucose 
+                        ? 'border-red-500 focus:border-red-500 focus:ring-red-200' 
+                        : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
+                    }`}
+                  />
+                  {validationErrors.glucose && (
+                    <p className="text-red-600 text-sm mt-1 font-medium flex items-center gap-1">
+                      <AlertCircle size={14} />
+                      {validationErrors.glucose}
+                    </p>
+                  )}
+                </div>
+
+                {/* Nivel de Dolor EVA */}
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Nivel de Dolor - EVA (0-10)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="0 = Sin dolor, 10 = Dolor máximo"
+                    min="0"
+                    max="10"
+                    value={vitalSignsForm.painLevel}
+                    onChange={(e) => setVitalSignsForm({...vitalSignsForm, painLevel: e.target.value})}
+                    className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-2 outline-none transition-all ${
+                      validationErrors.painLevel 
+                        ? 'border-red-500 focus:border-red-500 focus:ring-red-200' 
+                        : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'
+                    }`}
+                  />
+                  {validationErrors.painLevel && (
+                    <p className="text-red-600 text-sm mt-1 font-medium flex items-center gap-1">
+                      <AlertCircle size={14} />
+                      {validationErrors.painLevel}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Botón Guardar */}
+            <div className="flex justify-end pt-4">
+              <button
+                onClick={handleSaveVitalSigns}
+                className="px-8 py-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white font-bold rounded-xl shadow-lg hover:shadow-2xl hover:scale-105 transition-all duration-200 flex items-center gap-2"
+              >
+                <Save size={20} />
+                Guardar Signos Vitales
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Formulario de Notas Evolutivas SOAP (ECU-05) */}
+        <div className="bg-white rounded-2xl shadow-xl border-2 border-emerald-200 overflow-hidden">
+          <div className="bg-gradient-to-r from-emerald-50 to-teal-50 px-6 py-4 border-b-2 border-emerald-200">
+            <div className="flex items-center gap-3">
+              <FileText size={24} className="text-emerald-600" />
+              <h3 className="text-2xl font-bold text-gray-800">Registrar Notas Evolutivas - Formato SOAP</h3>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-6">
+            {/* Mensaje de Éxito */}
+            {showSOAPSuccess && (
+              <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl p-4 text-white shadow-lg animate-fadeIn flex items-center gap-3">
+                <CheckCircle size={24} />
+                <p className="font-bold">Nota evolutiva guardada correctamente</p>
+              </div>
+            )}
+
+            {/* Modal de Confirmación MSG-03 */}
+            {showSOAPConfirm && (
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] animate-fadeIn">
+                <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 animate-slideUp">
+                  <div className="flex items-center gap-3 mb-4">
+                    <AlertCircle size={32} className="text-amber-500" />
+                    <h3 className="text-2xl font-bold text-gray-800">Confirmar Registro</h3>
+                  </div>
+                  <p className="text-gray-700 mb-6 text-lg">
+                    <strong>MSG-03:</strong> ¿Está seguro de guardar esta nota evolutiva?
+                  </p>
+                  <p className="text-sm text-gray-600 mb-6 bg-blue-50 p-3 rounded-lg border border-blue-200">
+                    <strong>RN-07:</strong> Una vez guardada, la nota solo será editable durante las primeras 24 horas. Pasado ese tiempo, se bloqueará permanentemente para garantizar la integridad legal del expediente.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowSOAPConfirm(false)}
+                      className="flex-1 px-6 py-3 bg-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-300 transition-all"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={confirmSaveSOAPNote}
+                      className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all"
+                    >
+                      Confirmar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Selección de Paciente */}
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                Seleccionar Paciente *
+              </label>
+              <select
+                value={selectedSOAPPatient}
+                onChange={(e) => setSelectedSOAPPatient(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all font-medium"
+              >
+                <option value="">-- Seleccione un paciente --</option>
+                {patients.map(patient => (
+                  <option key={patient.id} value={patient.id}>
+                    {patient.name} - Hab. {patient.room} / Cama {patient.bed}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Información del Formato SOAP */}
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border-2 border-blue-200">
+              <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                <Info size={18} className="text-blue-600" />
+                Guía del Formato SOAP
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-gray-700">
+                <div>
+                  <strong className="text-blue-600">S - Subjetivo:</strong> Lo que refiere el paciente (síntomas, dolor)
+                </div>
+                <div>
+                  <strong className="text-purple-600">O - Objetivo:</strong> Lo que usted observa y mide (signos, aspecto)
+                </div>
+                <div>
+                  <strong className="text-indigo-600">A - Análisis:</strong> Su interpretación profesional de la evolución
+                </div>
+                <div>
+                  <strong className="text-teal-600">P - Plan:</strong> Cuidados y pendientes para el siguiente turno
+                </div>
+              </div>
+            </div>
+
+            {/* Campos SOAP */}
+            <div className="space-y-4">
+              {/* S - Subjetivo */}
+              <div>
+                <label className="block text-sm font-bold text-blue-700 mb-2 flex items-center gap-2">
+                  <MessageCircle size={18} />
+                  S - Subjetivo (Lo que refiere el paciente) *
+                </label>
+                <textarea
+                  value={soapForm.subjective}
+                  onChange={(e) => setSOAPForm({...soapForm, subjective: e.target.value})}
+                  placeholder="Ej: 'Paciente refiere dolor abdominal de intensidad 7/10, náuseas desde esta mañana...'"
+                  rows={3}
+                  className="w-full px-4 py-3 border-2 border-blue-300 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all resize-none"
+                />
+              </div>
+
+              {/* O - Objetivo */}
+              <div>
+                <label className="block text-sm font-bold text-purple-700 mb-2 flex items-center gap-2">
+                  <Eye size={18} />
+                  O - Objetivo (Lo que observa y mide) *
+                </label>
+                <textarea
+                  value={soapForm.objective}
+                  onChange={(e) => setSOAPForm({...soapForm, objective: e.target.value})}
+                  placeholder="Ej: 'Abdomen distendido, ruidos intestinales disminuidos. TA: 120/80, FC: 78 lpm, Temp: 37.2°C. Facies de dolor...'"
+                  rows={3}
+                  className="w-full px-4 py-3 border-2 border-purple-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all resize-none"
+                />
+              </div>
+
+              {/* A - Análisis */}
+              <div>
+                <label className="block text-sm font-bold text-indigo-700 mb-2 flex items-center gap-2">
+                  <Brain size={18} />
+                  A - Análisis (Interpretación profesional) *
+                </label>
+                <textarea
+                  value={soapForm.analysis}
+                  onChange={(e) => setSOAPForm({...soapForm, analysis: e.target.value})}
+                  placeholder="Ej: 'Paciente presenta evolución estacionaria de cuadro digestivo. Persiste sintomatología a pesar de tratamiento. Se requiere valoración médica...'"
+                  rows={3}
+                  className="w-full px-4 py-3 border-2 border-indigo-300 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all resize-none"
+                />
+              </div>
+
+              {/* P - Plan */}
+              <div>
+                <label className="block text-sm font-bold text-teal-700 mb-2 flex items-center gap-2">
+                  <ClipboardList size={18} />
+                  P - Plan (Cuidados y pendientes) *
+                </label>
+                <textarea
+                  value={soapForm.plan}
+                  onChange={(e) => setSOAPForm({...soapForm, plan: e.target.value})}
+                  placeholder="Ej: 'Continuar con dieta líquida, monitorear signos vitales c/4h, avisar a médico si dolor aumenta. Pendiente: solicitar interconsulta con cirugía...'"
+                  rows={3}
+                  className="w-full px-4 py-3 border-2 border-teal-300 rounded-xl focus:border-teal-500 focus:ring-2 focus:ring-teal-200 outline-none transition-all resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Información RN-07 */}
+            <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 flex items-start gap-3">
+              <Lock size={20} className="text-amber-600 mt-1 flex-shrink-0" />
+              <div className="text-sm text-gray-700">
+                <strong className="text-amber-700">Regla RN-07:</strong> Una vez guardada, esta nota solo será editable durante las primeras 24 horas. Después de ese período, se bloqueará permanentemente para garantizar la integridad legal del expediente clínico.
+              </div>
+            </div>
+
+            {/* Botón Guardar */}
+            <div className="flex justify-end pt-4">
+              <button
+                onClick={handleSaveSOAPNote}
+                className="px-8 py-4 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white font-bold rounded-xl shadow-lg hover:shadow-2xl hover:scale-105 transition-all duration-200 flex items-center gap-2"
+              >
+                <Save size={20} />
+                Guardar Nota Evolutiva
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Formulario de Administración de Medicamentos (ECU-09) */}
+        <div className="bg-white rounded-2xl shadow-xl border-2 border-purple-200 overflow-hidden">
+          <div className="bg-gradient-to-r from-purple-50 to-pink-50 px-6 py-4 border-b-2 border-purple-200">
+            <div className="flex items-center gap-3">
+              <Pill size={24} className="text-purple-600" />
+              <h3 className="text-2xl font-bold text-gray-800">Registrar Administración de Medicamentos</h3>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-6">
+            {/* Mensaje de Éxito */}
+            {showMedSuccess && (
+              <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl p-4 text-white shadow-lg animate-fadeIn flex items-center gap-3">
+                <CheckCircle size={24} />
+                <p className="font-bold">Medicamento administrado y registrado correctamente</p>
+              </div>
+            )}
+
+            {/* Alerta Crítica RN-05: Alergia */}
+            {allergyAlert && (
+              <div className="bg-gradient-to-r from-red-600 to-rose-700 rounded-xl p-6 text-white shadow-2xl animate-pulse border-4 border-red-300">
+                <div className="flex items-center gap-3 mb-3">
+                  <AlertCircle size={32} className="flex-shrink-0" />
+                  <h4 className="text-2xl font-black">⚠️ ALERTA CRÍTICA - RN-05</h4>
+                </div>
+                <p className="text-xl font-bold mb-2">
+                  EL PACIENTE {allergyAlert.patient.toUpperCase()} ES ALÉRGICO A: {allergyAlert.allergies.toUpperCase()}
+                </p>
+                <p className="text-lg">
+                  No se puede administrar <strong>{allergyAlert.medication}</strong>
+                </p>
+                <p className="mt-3 text-red-100 bg-red-800/30 p-3 rounded-lg">
+                  ⛔ REGISTRO BLOQUEADO - Seleccione otro medicamento
+                </p>
+              </div>
+            )}
+
+            {/* Error de Stock RN-10 */}
+            {stockError && (
+              <div className="bg-gradient-to-r from-orange-500 to-amber-600 rounded-xl p-4 text-white shadow-lg animate-fadeIn flex items-center gap-3 border-2 border-orange-300">
+                <AlertCircle size={24} />
+                <div>
+                  <p className="font-bold text-lg">{stockError}</p>
+                  <p className="text-sm text-orange-100">Contacte a Farmacia para reabastecer el inventario</p>
+                </div>
+              </div>
+            )}
+
+            {/* Modal de los 5 Correctos */}
+            {showFiveRights && (
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] animate-fadeIn">
+                <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full mx-4 animate-slideUp">
+                  <div className="flex items-center gap-3 mb-4">
+                    <ShieldCheck size={36} className="text-amber-500" />
+                    <h3 className="text-2xl font-bold text-gray-800">Verificar los 5 Correctos</h3>
+                  </div>
+                  
+                  <div className="bg-gradient-to-br from-amber-50 to-yellow-50 border-2 border-amber-300 rounded-xl p-6 mb-6">
+                    <p className="text-amber-900 font-bold mb-4 text-lg">
+                      ⚠️ Antes de administrar, verifique:
+                    </p>
+                    <div className="space-y-3">
+                      {[
+                        { label: '1. Paciente Correcto', value: patients.find(p => p.id === parseInt(selectedMedPatient))?.name },
+                        { label: '2. Medicamento Correcto', value: pharmacyInventory.find(m => m.id === parseInt(medicationForm.medication))?.medication_name },
+                        { label: '3. Dosis Correcta', value: medicationForm.dose },
+                        { label: '4. Vía Correcta', value: medicationForm.route },
+                        { label: '5. Hora Correcta', value: new Date().toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) }
+                      ].map((item, idx) => (
+                        <div key={idx} className="flex items-start gap-3 bg-white p-3 rounded-lg border border-amber-200">
+                          <CheckCircle size={20} className="text-green-600 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="font-bold text-gray-800">{item.label}</p>
+                            <p className="text-gray-600">{item.value}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {medicationForm.observations && (
+                    <div className="mb-4 bg-blue-50 p-4 rounded-lg border border-blue-200">
+                      <p className="font-bold text-gray-800 mb-1">Observaciones:</p>
+                      <p className="text-gray-700">{medicationForm.observations}</p>
+                    </div>
+                  )}
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowFiveRights(false)}
+                      className="flex-1 px-6 py-3 bg-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-300 transition-all"
+                    >
+                      Revisar
+                    </button>
+                    <button
+                      onClick={confirmMedicationAdministration}
+                      className="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle size={20} />
+                      Confirmar y Administrar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Selección de Paciente */}
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                Seleccionar Paciente *
+              </label>
+              <select
+                value={selectedMedPatient}
+                onChange={(e) => {
+                  setSelectedMedPatient(e.target.value);
+                  setAllergyAlert(null);
+                  setStockError(null);
+                  if (medicationForm.medication) {
+                    handleMedicationSelect(medicationForm.medication);
+                  }
+                }}
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all font-medium"
+              >
+                <option value="">-- Seleccione un paciente --</option>
+                {patients.map(patient => (
+                  <option key={patient.id} value={patient.id}>
+                    {patient.name} - Hab. {patient.room} / Cama {patient.bed}
+                    {patient.allergies ? ` ⚠️ ALERGIAS: ${patient.allergies}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Selección de Medicamento del Catálogo */}
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                Medicamento del Catálogo *
+              </label>
+              <select
+                value={medicationForm.medication}
+                onChange={(e) => handleMedicationSelect(e.target.value)}
+                disabled={!selectedMedPatient}
+                className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-2 outline-none transition-all font-medium ${
+                  allergyAlert 
+                    ? 'border-red-500 bg-red-50 cursor-not-allowed' 
+                    : stockError
+                    ? 'border-orange-500 bg-orange-50'
+                    : 'border-gray-300 focus:border-purple-500 focus:ring-purple-200'
+                }`}
+              >
+                <option value="">-- Seleccione un medicamento --</option>
+                {pharmacyInventory.map(med => (
+                  <option key={med.id} value={med.id} disabled={med.quantity === 0}>
+                    {med.medication_name} ({med.generic_name}) - Stock: {med.quantity} {med.unit}
+                    {med.quantity === 0 ? ' ❌ SIN STOCK' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Dosis */}
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                Dosis *
+              </label>
+              <input
+                type="text"
+                value={medicationForm.dose}
+                onChange={(e) => setMedicationForm({...medicationForm, dose: e.target.value})}
+                placeholder="Ej: 500 mg, 2 tabletas, 10 ml"
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all"
+              />
+            </div>
+
+            {/* Vía de Administración */}
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                Vía de Administración *
+              </label>
+              <select
+                value={medicationForm.route}
+                onChange={(e) => setMedicationForm({...medicationForm, route: e.target.value})}
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all font-medium"
+              >
+                <option value="">-- Seleccione vía de administración --</option>
+                <option value="Oral">Oral</option>
+                <option value="Intravenosa (IV)">Intravenosa (IV)</option>
+                <option value="Intramuscular (IM)">Intramuscular (IM)</option>
+                <option value="Subcutánea (SC)">Subcutánea (SC)</option>
+                <option value="Tópica">Tópica</option>
+                <option value="Sublingual">Sublingual</option>
+                <option value="Rectal">Rectal</option>
+                <option value="Inhalatoria">Inhalatoria</option>
+                <option value="Oftálmica">Oftálmica</option>
+                <option value="Ótica">Ótica</option>
+              </select>
+            </div>
+
+            {/* Observaciones */}
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                Observaciones
+              </label>
+              <textarea
+                value={medicationForm.observations}
+                onChange={(e) => setMedicationForm({...medicationForm, observations: e.target.value})}
+                placeholder="Notas adicionales sobre la administración..."
+                rows={3}
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none transition-all resize-none"
+              />
+            </div>
+
+            {/* Botón Administrar */}
+            <div className="flex justify-end pt-4">
+              <button
+                onClick={handleShowFiveRights}
+                disabled={allergyAlert || stockError}
+                className={`px-8 py-4 font-bold rounded-xl shadow-lg hover:shadow-2xl hover:scale-105 transition-all duration-200 flex items-center gap-2 ${
+                  allergyAlert || stockError
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-purple-600 via-pink-600 to-rose-600 text-white'
+                }`}
+              >
+                <Pill size={20} />
+                Verificar y Administrar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Formatos Digitales de Enfermería (ECU-13) */}
+        <div className="bg-white rounded-2xl shadow-xl border-2 border-indigo-200 overflow-hidden">
+          <div className="bg-gradient-to-r from-indigo-50 to-purple-50 px-6 py-4 border-b-2 border-indigo-200">
+            <div className="flex items-center gap-3">
+              <ClipboardList size={24} className="text-indigo-600" />
+              <h3 className="text-2xl font-bold text-gray-800">Formatos Digitales de Enfermería (ECU-13)</h3>
+            </div>
+            <p className="text-sm text-gray-600 mt-1">Digitalización de registros para reducir el uso de papel</p>
+          </div>
+
+          <div className="p-6 space-y-6">
+            {/* Selector de Paciente Global */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl border-2 border-blue-200">
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                Seleccionar Paciente para Formatos *
+              </label>
+              <select
+                value={selectedFormPatient}
+                onChange={(e) => setSelectedFormPatient(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all font-medium"
+              >
+                <option value="">-- Seleccione un paciente --</option>
+                {patients.map(patient => (
+                  <option key={patient.id} value={patient.id}>
+                    {patient.name} - Hab. {patient.room} / Cama {patient.bed}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Pestañas de Formatos */}
+            <div className="flex flex-wrap gap-2 border-b-2 border-gray-200 pb-2">
+              {[
+                { id: 'balance', label: 'Balance Hídrico', icon: Droplet, color: 'blue' },
+                { id: 'pain', label: 'Valoración Dolor', icon: Gauge, color: 'red' },
+                { id: 'falls', label: 'Riesgo Caídas', icon: AlertTriangle, color: 'amber' },
+                { id: 'wounds', label: 'Cuidados Heridas', icon: Bandage, color: 'green' },
+                { id: 'consent', label: 'Consentimiento', icon: FileSignature, color: 'purple' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveDigitalForm(tab.id)}
+                  className={`px-4 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${
+                    activeDigitalForm === tab.id
+                      ? `bg-${tab.color}-600 text-white shadow-lg`
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <tab.icon size={18} />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* A. Balance Hídrico */}
+            {activeDigitalForm === 'balance' && (
+              <div className="space-y-4 animate-fadeIn">
+                {showBalanceSuccess && (
+                  <div className="bg-green-500 text-white p-4 rounded-xl flex items-center gap-3">
+                    <CheckCircle size={24} />
+                    <p className="font-bold">Balance Hídrico registrado correctamente</p>
+                  </div>
+                )}
+
+                <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                  <h4 className="font-bold text-blue-800 mb-2 flex items-center gap-2">
+                    <Droplet size={20} />
+                    A. Balance Hídrico - Control Estricto de Líquidos
+                  </h4>
+                  <p className="text-sm text-blue-700">Todos los valores deben ser en mililitros (ml) enteros.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Ingresos Orales (ml) *
+                    </label>
+                    <input
+                      type="number"
+                      value={balanceForm.oralIntake}
+                      onChange={(e) => setBalanceForm({...balanceForm, oralIntake: e.target.value})}
+                      placeholder="Líquidos ingeridos por boca"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Ingresos Intravenosos (ml) *
+                    </label>
+                    <input
+                      type="number"
+                      value={balanceForm.ivIntake}
+                      onChange={(e) => setBalanceForm({...balanceForm, ivIntake: e.target.value})}
+                      placeholder="Soluciones IV, medicamentos, hemoderivados"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Egresos - Diuresis (ml) *
+                    </label>
+                    <input
+                      type="number"
+                      value={balanceForm.urineOutput}
+                      onChange={(e) => setBalanceForm({...balanceForm, urineOutput: e.target.value})}
+                      placeholder="Volumen de orina excretado"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Egresos - Drenajes (ml) *
+                    </label>
+                    <input
+                      type="number"
+                      value={balanceForm.drainageOutput}
+                      onChange={(e) => setBalanceForm({...balanceForm, drainageOutput: e.target.value})}
+                      placeholder="Sondas, drenajes quirúrgicos, vómito"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Observaciones
+                  </label>
+                  <textarea
+                    value={balanceForm.observations}
+                    onChange={(e) => setBalanceForm({...balanceForm, observations: e.target.value})}
+                    placeholder="Características de los líquidos: color, olor, sedimento..."
+                    rows={3}
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none resize-none"
+                  />
+                </div>
+
+                {balanceForm.oralIntake && balanceForm.ivIntake && balanceForm.urineOutput && balanceForm.drainageOutput && (
+                  <div className="bg-gradient-to-r from-cyan-50 to-blue-50 p-4 rounded-xl border-2 border-cyan-300">
+                    <h5 className="font-bold text-gray-800 mb-2">Cálculo Automático:</h5>
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div>
+                        <p className="text-sm text-gray-600">Total Ingresos</p>
+                        <p className="text-2xl font-black text-green-600">{parseInt(balanceForm.oralIntake) + parseInt(balanceForm.ivIntake)} ml</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Total Egresos</p>
+                        <p className="text-2xl font-black text-red-600">{parseInt(balanceForm.urineOutput) + parseInt(balanceForm.drainageOutput)} ml</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Balance</p>
+                        <p className="text-2xl font-black text-blue-600">
+                          {(parseInt(balanceForm.oralIntake) + parseInt(balanceForm.ivIntake)) - (parseInt(balanceForm.urineOutput) + parseInt(balanceForm.drainageOutput))} ml
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={handleSaveBalance}
+                  className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-2"
+                >
+                  <Save size={20} />
+                  Guardar Balance Hídrico
+                </button>
+              </div>
+            )}
+
+            {/* B. Valoración de Dolor */}
+            {activeDigitalForm === 'pain' && (
+              <div className="space-y-4 animate-fadeIn">
+                {showPainSuccess && (
+                  <div className="bg-green-500 text-white p-4 rounded-xl flex items-center gap-3">
+                    <CheckCircle size={24} />
+                    <p className="font-bold">Valoración de Dolor registrada correctamente</p>
+                  </div>
+                )}
+
+                <div className="bg-red-50 p-4 rounded-xl border border-red-200">
+                  <h4 className="font-bold text-red-800 mb-2 flex items-center gap-2">
+                    <Gauge size={20} />
+                    B. Valoración de Dolor - Escala Visual Análoga (EVA)
+                  </h4>
+                  <p className="text-sm text-red-700">0 = Sin dolor | 10 = Peor dolor imaginable</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Intensidad del Dolor (0-10) *
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="10"
+                    value={painForm.intensity}
+                    onChange={(e) => setPainForm({...painForm, intensity: e.target.value})}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-sm text-gray-600 mt-1">
+                    <span>0 - Sin dolor</span>
+                    <span className="text-3xl font-black text-red-600">{painForm.intensity || '?'}</span>
+                    <span>10 - Máximo</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Localización *
+                  </label>
+                  <input
+                    type="text"
+                    value={painForm.location}
+                    onChange={(e) => setPainForm({...painForm, location: e.target.value})}
+                    placeholder="Ej: Cuadrante inferior derecho abdominal"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-200 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Tipo de Dolor *
+                  </label>
+                  <select
+                    value={painForm.painType}
+                    onChange={(e) => setPainForm({...painForm, painType: e.target.value})}
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-200 outline-none"
+                  >
+                    <option value="">-- Seleccione tipo --</option>
+                    <option value="Punzante">Punzante</option>
+                    <option value="Opresivo">Opresivo</option>
+                    <option value="Quemante">Quemante</option>
+                    <option value="Cólico">Cólico</option>
+                    <option value="Sordo">Sordo</option>
+                    <option value="Lancinante">Lancinante</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Factores Desencadenantes
+                  </label>
+                  <input
+                    type="text"
+                    value={painForm.triggers}
+                    onChange={(e) => setPainForm({...painForm, triggers: e.target.value})}
+                    placeholder="Actividad o movimiento que provoca el dolor"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-200 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Tratamiento Aplicado
+                  </label>
+                  <textarea
+                    value={painForm.treatment}
+                    onChange={(e) => setPainForm({...painForm, treatment: e.target.value})}
+                    placeholder="Medidas farmacológicas o físicas empleadas"
+                    rows={3}
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-red-500 focus:ring-2 focus:ring-red-200 outline-none resize-none"
+                  />
+                </div>
+
+                <button
+                  onClick={handleSavePain}
+                  className="w-full px-6 py-3 bg-gradient-to-r from-red-600 to-pink-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-2"
+                >
+                  <Save size={20} />
+                  Guardar Valoración de Dolor
+                </button>
+              </div>
+            )}
+
+            {/* C. Riesgo de Caídas - Parte 1 */}
+            {activeDigitalForm === 'falls' && (
+              <div className="space-y-4 animate-fadeIn">
+                {showFallRiskSuccess && (
+                  <div className="bg-green-500 text-white p-4 rounded-xl flex items-center gap-3">
+                    <CheckCircle size={24} />
+                    <p className="font-bold">Valoración de Riesgo de Caídas registrada correctamente</p>
+                  </div>
+                )}
+
+                <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
+                  <h4 className="font-bold text-amber-800 mb-2 flex items-center gap-2">
+                    <AlertTriangle size={20} />
+                    C. Valoración de Riesgo de Caídas
+                  </h4>
+                  <p className="text-sm text-amber-700">Herramienta preventiva obligatoria al ingreso y cambio de turno</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-white p-4 rounded-xl border-2 border-gray-200">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      ¿Mayor de 65 años? *
+                    </label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="over65"
+                          value="si"
+                          checked={fallRiskForm.over65 === 'si'}
+                          onChange={(e) => setFallRiskForm({...fallRiskForm, over65: e.target.value})}
+                          className="w-5 h-5"
+                        />
+                        <span className="font-medium">Sí</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="over65"
+                          value="no"
+                          checked={fallRiskForm.over65 === 'no'}
+                          onChange={(e) => setFallRiskForm({...fallRiskForm, over65: e.target.value})}
+                          className="w-5 h-5"
+                        />
+                        <span className="font-medium">No</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-xl border-2 border-gray-200">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      ¿Historia de caídas? *
+                    </label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="fallHistory"
+                          value="si"
+                          checked={fallRiskForm.fallHistory === 'si'}
+                          onChange={(e) => setFallRiskForm({...fallRiskForm, fallHistory: e.target.value})}
+                          className="w-5 h-5"
+                        />
+                        <span className="font-medium">Sí</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="fallHistory"
+                          value="no"
+                          checked={fallRiskForm.fallHistory === 'no'}
+                          onChange={(e) => setFallRiskForm({...fallRiskForm, fallHistory: e.target.value})}
+                          className="w-5 h-5"
+                        />
+                        <span className="font-medium">No</span>
+                      </label>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Últimos 3 meses</p>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-xl border-2 border-gray-200">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      ¿Alteración de la marcha? *
+                    </label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="gaitAlteration"
+                          value="si"
+                          checked={fallRiskForm.gaitAlteration === 'si'}
+                          onChange={(e) => setFallRiskForm({...fallRiskForm, gaitAlteration: e.target.value})}
+                          className="w-5 h-5"
+                        />
+                        <span className="font-medium">Sí</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="gaitAlteration"
+                          value="no"
+                          checked={fallRiskForm.gaitAlteration === 'no'}
+                          onChange={(e) => setFallRiskForm({...fallRiskForm, gaitAlteration: e.target.value})}
+                          className="w-5 h-5"
+                        />
+                        <span className="font-medium">No</span>
+                      </label>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Bastón, andadera, inestabilidad</p>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-xl border-2 border-gray-200">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      ¿Medicación de riesgo? *
+                    </label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="riskMedication"
+                          value="si"
+                          checked={fallRiskForm.riskMedication === 'si'}
+                          onChange={(e) => setFallRiskForm({...fallRiskForm, riskMedication: e.target.value})}
+                          className="w-5 h-5"
+                        />
+                        <span className="font-medium">Sí</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="riskMedication"
+                          value="no"
+                          checked={fallRiskForm.riskMedication === 'no'}
+                          onChange={(e) => setFallRiskForm({...fallRiskForm, riskMedication: e.target.value})}
+                          className="w-5 h-5"
+                        />
+                        <span className="font-medium">No</span>
+                      </label>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Sedantes, diuréticos, hipotensores</p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Medidas Preventivas *
+                  </label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {['Barandales arriba', 'Timbre al alcance', 'Iluminación adecuada', 'Piso seco', 'Zapatos antiderrapantes', 'Acompañamiento'].map(measure => (
+                      <label key={measure} className="flex items-center gap-2 bg-gray-50 p-3 rounded-lg cursor-pointer hover:bg-gray-100">
+                        <input
+                          type="checkbox"
+                          checked={fallRiskForm.preventiveMeasures.includes(measure)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFallRiskForm({...fallRiskForm, preventiveMeasures: [...fallRiskForm.preventiveMeasures, measure]});
+                            } else {
+                              setFallRiskForm({...fallRiskForm, preventiveMeasures: fallRiskForm.preventiveMeasures.filter(m => m !== measure)});
+                            }
+                          }}
+                          className="w-5 h-5"
+                        />
+                        <span className="font-medium">{measure}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleSaveFallRisk}
+                  className="w-full px-6 py-3 bg-gradient-to-r from-amber-600 to-orange-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-2"
+                >
+                  <Save size={20} />
+                  Guardar Valoración de Riesgo
+                </button>
+              </div>
+            )}
+
+            {/* D. Registro de Cuidados de Heridas */}
+            {activeDigitalForm === 'wounds' && (
+              <div className="space-y-4 animate-fadeIn">
+                {showWoundSuccess && (
+                  <div className="bg-green-500 text-white p-4 rounded-xl flex items-center gap-3">
+                    <CheckCircle size={24} />
+                    <p className="font-bold">Registro de Cuidados de Heridas guardado correctamente</p>
+                  </div>
+                )}
+
+                <div className="bg-green-50 p-4 rounded-xl border border-green-200">
+                  <h4 className="font-bold text-green-800 mb-2 flex items-center gap-2">
+                    <Bandage size={20} />
+                    D. Registro de Cuidados de Heridas
+                  </h4>
+                  <p className="text-sm text-green-700">Seguimiento detallado de lesiones y tratamientos</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Localización de la Herida *
+                  </label>
+                  <input
+                    type="text"
+                    value={woundForm.location}
+                    onChange={(e) => setWoundForm({...woundForm, location: e.target.value})}
+                    placeholder="Ej: Región sacra, talón izquierdo, antebrazo derecho"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200 outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Longitud (cm) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={woundForm.length}
+                      onChange={(e) => setWoundForm({...woundForm, length: e.target.value})}
+                      placeholder="Ej: 3.5"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                      Ancho (cm) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={woundForm.width}
+                      onChange={(e) => setWoundForm({...woundForm, width: e.target.value})}
+                      placeholder="Ej: 2.0"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Aspecto *
+                  </label>
+                  <select
+                    value={woundForm.appearance}
+                    onChange={(e) => setWoundForm({...woundForm, appearance: e.target.value})}
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200 outline-none"
+                  >
+                    <option value="">-- Seleccione aspecto --</option>
+                    <option value="Granuloso">Granuloso</option>
+                    <option value="Necrótico">Necrótico</option>
+                    <option value="Epitelizado">Epitelizado</option>
+                    <option value="Infectado">Infectado</option>
+                    <option value="Limpio">Limpio</option>
+                    <option value="Fibrinoso">Fibrinoso</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Tipo de Exudado *
+                  </label>
+                  <select
+                    value={woundForm.exudateType}
+                    onChange={(e) => setWoundForm({...woundForm, exudateType: e.target.value})}
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200 outline-none"
+                  >
+                    <option value="">-- Seleccione tipo --</option>
+                    <option value="Seroso">Seroso</option>
+                    <option value="Purulento">Purulento</option>
+                    <option value="Hemático">Hemático</option>
+                    <option value="Serosanguinolento">Serosanguinolento</option>
+                    <option value="Sin exudado">Sin exudado</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Cura Realizada *
+                  </label>
+                  <textarea
+                    value={woundForm.treatment}
+                    onChange={(e) => setWoundForm({...woundForm, treatment: e.target.value})}
+                    placeholder="Ej: Lavado mecánico con solución salina, desbridamiento de tejido necrótico, aplicación de apósito hidrocoloide"
+                    rows={3}
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200 outline-none resize-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Material Utilizado *
+                  </label>
+                  <input
+                    type="text"
+                    value={woundForm.materials}
+                    onChange={(e) => setWoundForm({...woundForm, materials: e.target.value})}
+                    placeholder="Ej: Gasas estériles, apósito hidrocoloide 10x10cm, solución salina 250ml"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200 outline-none"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Para control de inventario</p>
+                </div>
+
+                <button
+                  onClick={handleSaveWound}
+                  className="w-full px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-2"
+                >
+                  <Save size={20} />
+                  Guardar Registro de Heridas
+                </button>
+              </div>
+            )}
+
+            {/* E. Consentimiento Informado */}
+            {activeDigitalForm === 'consent' && (
+              <div className="space-y-4 animate-fadeIn">
+                {showConsentSuccess && (
+                  <div className="bg-green-500 text-white p-4 rounded-xl flex items-center gap-3">
+                    <CheckCircle size={24} />
+                    <p className="font-bold">Consentimiento Informado registrado correctamente</p>
+                  </div>
+                )}
+
+                {/* Modal de Confirmación Legal */}
+                {showConsentConfirm && (
+                  <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] animate-fadeIn">
+                    <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-xl w-full mx-4 animate-slideUp">
+                      <div className="flex items-center gap-3 mb-4">
+                        <FileSignature size={36} className="text-purple-600" />
+                        <h3 className="text-2xl font-bold text-gray-800">Confirmar Consentimiento Informado</h3>
+                      </div>
+                      
+                      <div className="bg-purple-50 border-2 border-purple-300 rounded-xl p-6 mb-6">
+                        <p className="text-purple-900 font-bold mb-4 text-lg flex items-center gap-2">
+                          <Lock size={20} />
+                          DOCUMENTO CON VALOR LEGAL
+                        </p>
+                        <p className="text-purple-800 mb-3">
+                          Al confirmar, el sistema estampará automáticamente:
+                        </p>
+                        <ul className="space-y-2 text-purple-700">
+                          <li>✓ Fecha y hora exacta (INMUTABLE)</li>
+                          <li>✓ Nombre del enfermero/a responsable</li>
+                          <li>✓ Datos del paciente</li>
+                          <li>✓ Procedimiento y riesgos explicados</li>
+                        </ul>
+                        <p className="text-sm text-purple-600 mt-4 bg-purple-100 p-3 rounded-lg">
+                          <strong>Importante:</strong> Este documento NO podrá ser editado después de guardado y tiene validez legal en el expediente clínico.
+                        </p>
+                      </div>
+
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => setShowConsentConfirm(false)}
+                          className="flex-1 px-6 py-3 bg-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-300 transition-all"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={confirmSaveConsent}
+                          className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-2"
+                        >
+                          <FileSignature size={20} />
+                          Confirmar y Registrar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-purple-50 p-4 rounded-xl border border-purple-200">
+                  <h4 className="font-bold text-purple-800 mb-2 flex items-center gap-2">
+                    <FileSignature size={20} />
+                    E. Consentimiento Informado - Documento Legal
+                  </h4>
+                  <p className="text-sm text-purple-700">Este formato tiene valor legal. Fecha y hora serán inmutables.</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Procedimiento a Realizar *
+                  </label>
+                  <input
+                    type="text"
+                    value={consentForm.procedure}
+                    onChange={(e) => setConsentForm({...consentForm, procedure: e.target.value})}
+                    placeholder="Nombre técnico del procedimiento"
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Riesgos Explicados *
+                  </label>
+                  <textarea
+                    value={consentForm.risks}
+                    onChange={(e) => setConsentForm({...consentForm, risks: e.target.value})}
+                    placeholder="Resumen de los riesgos informados al paciente..."
+                    rows={4}
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 outline-none resize-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    ¿Paciente Comprende? *
+                  </label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer bg-gray-50 p-3 rounded-lg flex-1">
+                      <input
+                        type="radio"
+                        name="understands"
+                        value="Sí, comprende completamente"
+                        checked={consentForm.understands === 'Sí, comprende completamente'}
+                        onChange={(e) => setConsentForm({...consentForm, understands: e.target.value})}
+                        className="w-5 h-5"
+                      />
+                      <span className="font-medium">Sí, comprende completamente</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer bg-gray-50 p-3 rounded-lg flex-1">
+                      <input
+                        type="radio"
+                        name="understands"
+                        value="No comprende / Requiere más explicación"
+                        checked={consentForm.understands === 'No comprende / Requiere más explicación'}
+                        onChange={(e) => setConsentForm({...consentForm, understands: e.target.value})}
+                        className="w-5 h-5"
+                      />
+                      <span className="font-medium">No comprende / Requiere más explicación</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    ¿Consentimiento Otorgado? *
+                  </label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer bg-green-50 p-3 rounded-lg flex-1 border-2 border-green-300">
+                      <input
+                        type="radio"
+                        name="consentGiven"
+                        value="SÍ - Consentimiento otorgado"
+                        checked={consentForm.consentGiven === 'SÍ - Consentimiento otorgado'}
+                        onChange={(e) => setConsentForm({...consentForm, consentGiven: e.target.value})}
+                        className="w-5 h-5"
+                      />
+                      <span className="font-bold text-green-700">SÍ - Consentimiento otorgado</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer bg-red-50 p-3 rounded-lg flex-1 border-2 border-red-300">
+                      <input
+                        type="radio"
+                        name="consentGiven"
+                        value="NO - Consentimiento denegado"
+                        checked={consentForm.consentGiven === 'NO - Consentimiento denegado'}
+                        onChange={(e) => setConsentForm({...consentForm, consentGiven: e.target.value})}
+                        className="w-5 h-5"
+                      />
+                      <span className="font-bold text-red-700">NO - Consentimiento denegado</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 flex items-start gap-3">
+                  <Lock size={20} className="text-amber-600 mt-1 flex-shrink-0" />
+                  <div className="text-sm text-amber-800">
+                    <p className="font-bold mb-1">⚠️ ADVERTENCIA LEGAL</p>
+                    <p>Una vez guardado, este documento quedará sellado con fecha y hora inmutables. No podrá ser modificado posteriormente. Asegúrese de que toda la información sea correcta antes de confirmar.</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleSaveConsent}
+                  className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center gap-2"
+                >
+                  <FileSignature size={20} />
+                  Registrar Consentimiento Informado
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Vista de Historiales - Consulta de datos previos
+  const HistoriesView = () => (
+    <div className="space-y-6 animate-fadeIn">
+      <div className="bg-gradient-to-br from-purple-50 via-pink-50 to-rose-50 rounded-2xl shadow-xl border-2 border-purple-200 p-8">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center shadow-lg">
+            <ClipboardList size={32} className="text-white" strokeWidth={2.5} />
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-gray-800">Historiales</h2>
+            <p className="text-lg text-gray-600 font-medium">Consulta de datos previos y registros históricos</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border-2 border-purple-200 shadow-md overflow-hidden">
+            <div className="px-6 py-4 bg-gradient-to-r from-purple-50 to-pink-50 border-b border-purple-200">
+              <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <Heart className="text-purple-600" size={20} />
+                Historial de Signos Vitales
+              </h3>
+            </div>
+            <div className="p-6">
+              <div className="space-y-3">
+                {vitalSigns.slice(0, 5).map((vs, idx) => {
+                  const patient = patients.find(p => p.id === vs.patientId);
+                  return (
+                    <div key={idx} className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-white rounded-lg border border-purple-200">
+                      <div>
+                        <p className="font-bold text-gray-800">{patient?.name || 'Paciente'}</p>
+                        <p className="text-sm text-gray-600">
+                          T: {vs.temperature}°C | PA: {vs.bloodPressure} | FC: {vs.heartRate} bpm | FR: {vs.respiratoryRate} rpm
+                        </p>
+                      </div>
+                      <span className="text-xs text-gray-500 font-medium">{new Date(vs.timestamp).toLocaleString('es-MX')}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border-2 border-purple-200 shadow-md overflow-hidden">
+            <div className="px-6 py-4 bg-gradient-to-r from-purple-50 to-pink-50 border-b border-purple-200">
+              <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <FileText className="text-purple-600" size={20} />
+                Historial de Notas de Enfermería
+              </h3>
+            </div>
+            <div className="p-6">
+              <div className="space-y-3">
+                {nurseNotes.slice(0, 5).map((note, idx) => {
+                  const patient = patients.find(p => p.id === note.patientId);
+                  return (
+                    <div key={idx} className="p-4 bg-gradient-to-r from-purple-50 to-white rounded-lg border border-purple-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="font-bold text-gray-800">{patient?.name || 'Paciente'}</p>
+                        <span className="text-xs text-gray-500 font-medium">{new Date(note.timestamp).toLocaleString('es-MX')}</span>
+                      </div>
+                      <p className="text-sm text-gray-700">{note.note}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Vista de Información Personal - Turno y jornada del usuario
+  const PersonalInfoView = () => (
+    <div className="space-y-6 animate-fadeIn">
+      <div className="bg-gradient-to-br from-cyan-50 via-blue-50 to-indigo-50 rounded-2xl shadow-xl border-2 border-cyan-200 p-8">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg">
+            <User size={32} className="text-white" strokeWidth={2.5} />
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-gray-800">Información Personal</h2>
+            <p className="text-lg text-gray-600 font-medium">Su turno y jornada laboral</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-white p-6 rounded-xl border-2 border-cyan-200 shadow-md">
+            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <User className="text-cyan-600" size={20} />
+              Datos del Usuario
+            </h3>
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm text-gray-500 font-semibold">Nombre Completo</p>
+                <p className="text-lg font-bold text-gray-800">{user.name}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 font-semibold">Usuario</p>
+                <p className="text-lg font-bold text-gray-800">{user.username}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 font-semibold">Email</p>
+                <p className="text-lg font-bold text-gray-800">{user.email || 'No especificado'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 font-semibold">Teléfono</p>
+                <p className="text-lg font-bold text-gray-800">{user.phone || 'No especificado'}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-xl border-2 border-cyan-200 shadow-md">
+            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <Clock className="text-cyan-600" size={20} />
+              Información de Turno
+            </h3>
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm text-gray-500 font-semibold">Turno Actual</p>
+                <p className="text-lg font-bold text-gray-800">
+                  {currentShift === 'Matutino' && '🌅 Matutino (07:00 - 15:00)'}
+                  {currentShift === 'Vespertino' && '🌆 Vespertino (15:00 - 23:00)'}
+                  {currentShift === 'Nocturno' && '🌙 Nocturno (23:00 - 07:00)'}
+                  {!currentShift && 'No definido'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 font-semibold">Turnos Asignados</p>
+                <p className="text-lg font-bold text-gray-800">
+                  {userWithAssignments.assignedShifts 
+                    ? userWithAssignments.assignedShifts.join(', ') 
+                    : 'Todos los turnos'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 font-semibold">Pisos Asignados</p>
+                <p className="text-lg font-bold text-gray-800">
+                  {userWithAssignments.assignedFloors 
+                    ? userWithAssignments.assignedFloors.join(', ') 
+                    : 'Todos los pisos'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500 font-semibold">Pacientes Asignados Hoy</p>
+                <p className="text-lg font-bold text-gray-800">{patients.length} pacientes</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-r from-cyan-100 to-blue-100 p-6 rounded-xl border-2 border-cyan-300 shadow-md md:col-span-2">
+            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <Building2 className="text-cyan-700" size={20} />
+              Información del Departamento
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <p className="text-sm text-cyan-700 font-semibold">Departamento</p>
+                <p className="text-lg font-bold text-gray-800">{user.department || 'Enfermería General'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-cyan-700 font-semibold">Especialización</p>
+                <p className="text-lg font-bold text-gray-800">{user.specialization || 'No especificada'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-cyan-700 font-semibold">Rol</p>
+                <p className="text-lg font-bold text-gray-800 capitalize">{user.role === 'nurse' ? 'Enfermero/a' : user.role}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   // --- RENDERIZADO PRINCIPAL CON NUEVO LAYOUT (Sidebar + Contenido) ---
   return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 overflow-hidden">
+    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
       {/* SIDEBAR DE NAVEGACIÓN - Redesigned */}
       <aside className={`${sidebarOpen ? 'w-96' : 'w-20'} bg-white border-r border-gray-200 transition-all duration-300 flex flex-col z-20 shadow-sm`}>
         <div className="p-6 border-b border-gray-200">
@@ -2354,26 +4947,35 @@ const NurseDashboard = ({ user, onLogout }) => {
           )}
         </div>
         
-        <nav className="flex-1 p-4 space-y-2">
-          {[
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+          {useMemo(() => [
             { id: 'overview', label: 'Panel General', icon: LayoutDashboard, color: 'from-blue-500 to-cyan-600' },
+            { id: 'assignedPatients', label: 'Pacientes Asignados', icon: Users, color: 'from-emerald-500 to-teal-600', badge: patients.length },
             { id: 'patients', label: 'Lista de Pacientes', icon: Users, color: 'from-emerald-500 to-teal-600' },
+            { id: 'clinicalRecord', label: 'Registro Clínico', icon: FileText, color: 'from-blue-500 to-indigo-600' },
+            { id: 'histories', label: 'Historiales', icon: ClipboardList, color: 'from-purple-500 to-pink-600' },
             { id: 'beds', label: 'Disponibilidad Camas', icon: Building2, color: 'from-indigo-500 to-purple-600' },
             { id: 'care', label: 'Zona de Cuidados', icon: Stethoscope, color: 'from-purple-500 to-pink-600' },
+            { id: 'personalInfo', label: 'Información Personal', icon: User, color: 'from-cyan-500 to-blue-600' },
             { id: 'shifts', label: 'Mi Turno', icon: Clock, color: 'from-orange-500 to-amber-600' },
             { id: 'nursingSheet', label: 'Hoja de Enfermería', icon: ClipboardList, color: 'from-indigo-500 to-purple-600' },
-          ].map(item => (
+          ], [patients.length]).map(item => (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center gap-5 px-6 py-6 rounded-xl transition-all duration-200 font-bold text-3xl ${
+              className={`w-full flex items-center gap-5 px-6 py-6 rounded-xl transition-all duration-200 font-bold text-3xl relative ${
                 activeTab === item.id 
                   ? 'bg-blue-50 text-blue-600 shadow-sm' 
                   : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
               }`}
             >
               <item.icon size={36} />
-              {sidebarOpen && <span>{item.label}</span>}
+              {sidebarOpen && <span className="flex-1 text-left">{item.label}</span>}
+              {sidebarOpen && item.badge !== undefined && (
+                <span className="bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-bold px-3 py-1 rounded-full shadow-md">
+                  {item.badge}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -2400,26 +5002,47 @@ const NurseDashboard = ({ user, onLogout }) => {
 
       {/* ÁREA DE CONTENIDO PRINCIPAL */}
       <main className="flex-1 overflow-y-auto relative flex flex-col">
-        {/* Header Superior (Sticky) */}
-        <header className="sticky top-0 bg-gradient-to-r from-white via-blue-50/50 to-purple-50/50 backdrop-blur-md border-b-2 border-purple-200 z-10 px-8 py-5 flex justify-between items-center shadow-lg shadow-blue-100/50">
-          <div>
-            <h1 className="text-2xl font-black bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent tracking-tight">
-              {activeTab === 'overview' && 'Visión General'}
-              {activeTab === 'patients' && 'Directorio de Pacientes'}
-              {activeTab === 'beds' && 'Disponibilidad de Camas'}
-              {activeTab === 'care' && 'Gestión y Cuidados'}
-            </h1>
-            <p className="text-gray-600 text-sm font-medium mt-1 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 animate-pulse shadow-lg shadow-emerald-500/50"></span> Sistema Hospitalario Activo
-            </p>
-          </div>
-          <div className="hidden md:flex items-center gap-4">
-              <div className="text-right hidden lg:block bg-gradient-to-r from-blue-100 to-purple-100 px-4 py-2 rounded-xl border-2 border-purple-200 shadow-sm">
-                <p className="text-sm font-bold text-gray-800">{new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+        {/* Header Superior (Sticky) - Diseño Profesional Mejorado */}
+        <header className="sticky top-0 bg-gradient-to-r from-white via-blue-50/30 to-white border-b-2 border-blue-100 z-10 shadow-md backdrop-blur-sm">
+          <div className="w-full px-8 py-4">
+            <div className="grid grid-cols-3 items-center gap-8">
+              
+              {/* Nombre Completo - Columna Izquierda */}
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-lg ring-2 ring-blue-100 flex-shrink-0">
+                  {user.name.charAt(0)}
+                </div>
+                <div>
+                  <p className="text-base font-bold text-gray-900">{user.name}</p>
+                  <p className="text-xs text-gray-600 font-medium">Personal de Enfermería</p>
+                </div>
               </div>
-             <button className="bg-gradient-to-r from-blue-100 to-purple-100 p-2 rounded-full text-purple-600 hover:shadow-lg hover:shadow-purple-200 hover:scale-110 transition-all md:hidden">
-                <Menu size={24} />
-             </button>
+
+              {/* Turno Actual - Columna Centro */}
+              <div className="flex items-center justify-center gap-3 px-6 py-3 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border-2 border-blue-200 shadow-sm mx-auto">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
+                  <Clock size={18} className="text-white" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-blue-600 font-semibold uppercase tracking-wide">Turno:</p>
+                  <p className="text-sm font-bold text-gray-900">
+                    {currentShift?.name || 'No asignado'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Botón Salir - Columna Derecha */}
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105 active:scale-95"
+                >
+                  <LogOut size={20} strokeWidth={2.5} />
+                  <span>Salir</span>
+                </button>
+              </div>
+            </div>
           </div>
         </header>
 
@@ -2437,15 +5060,23 @@ const NurseDashboard = ({ user, onLogout }) => {
           ) : (
             <>
               {activeTab === 'overview' && <OverviewView />}
+              {activeTab === 'assignedPatients' && <AssignedPatientsView />}
               {activeTab === 'patients' && <PatientsListView />}
+              {activeTab === 'clinicalRecord' && <ClinicalRecordView />}
+              {activeTab === 'histories' && <HistoriesView />}
               {activeTab === 'beds' && <BedManagement user={user} patients={patients} />}
               {activeTab === 'care' && <CareView />}
+              {activeTab === 'personalInfo' && <PersonalInfoView />}
               {activeTab === 'shifts' && <ShiftsView />}
               {activeTab === 'nursingSheet' && <NursingSheetView />}
             </>
           )}
         </div>
       </main>
+      
+      {/* Modales */}
+      <TriageModal />
+      <TransfersModal />
     </div>
   );
 };
@@ -2492,7 +5123,14 @@ const HospitalManagementSystem = () => {
         <>
           {showLoginModal && (
             <LoginForm 
-              onLoginSuccess={(user) => { setCurrentUser({...user, type: user.role === 'nurse' ? 'nurse' : 'other'}); setShowLoginModal(false); }}
+              onLoginSuccess={(user) => { 
+                console.log('🔍 Login Success - User data:', user);
+                console.log('🔍 User role:', user.role);
+                const userWithType = {...user, type: user.role === 'nurse' ? 'nurse' : 'other'};
+                console.log('🔍 User with type:', userWithType);
+                setCurrentUser(userWithType); 
+                setShowLoginModal(false); 
+              }}
               onBackToHome={() => {}} 
               onShowRegister={() => { setShowLoginModal(false); setShowRegisterModal(true); }}
               onShowPasswordRecovery={() => { setShowLoginModal(false); setShowPasswordRecoveryModal(true); }}
@@ -2513,13 +5151,30 @@ const HospitalManagementSystem = () => {
         </>
       ) : (
         currentUser.type === 'nurse' 
-          ? <NurseDashboard user={currentUser} onLogout={() => setCurrentUser(null)} />
+          ? <NurseDashboard user={currentUser} onLogout={() => {
+              localStorage.removeItem('sessionToken');
+              setCurrentUser(null);
+              setShowLoginModal(true);
+            }} />
           : <div className="min-h-screen flex items-center justify-center flex-col gap-4 bg-gradient-to-br from-rose-50 to-red-50">
               <div className="bg-white p-8 rounded-3xl shadow-2xl border-2 border-red-200">
                 <h2 className="text-3xl font-black bg-gradient-to-r from-red-500 to-rose-600 bg-clip-text text-transparent mb-3">Acceso Restringido</h2>
                 <p className="text-gray-700 mb-6">Este portal es exclusivo para personal de enfermería.</p>
                 <button 
-                  onClick={() => setCurrentUser(null)} 
+                  onClick={async () => {
+                    try {
+                      const sessionToken = localStorage.getItem('sessionToken');
+                      if (sessionToken) {
+                        await authLogout(sessionToken);
+                        localStorage.removeItem('sessionToken');
+                      }
+                      setCurrentUser(null);
+                    } catch (error) {
+                      console.error('Error al cerrar sesión:', error);
+                      localStorage.removeItem('sessionToken');
+                      setCurrentUser(null);
+                    }
+                  }} 
                   className="w-full px-6 py-3 bg-gradient-to-r from-red-500 to-rose-600 text-white font-bold rounded-xl hover:shadow-lg transition-all duration-300 hover:scale-105"
                 >
                   Cerrar Sesión

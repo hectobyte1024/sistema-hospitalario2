@@ -1,4 +1,4 @@
-import { getUserByUsername, createUser, getUserByEmail, updateLastLogin } from './database';
+import { getUserByUsername, createUser, getUserByEmail, updateLastLogin, incrementFailedLoginAttempts, isAccountLocked, createSession, hasActiveSession, terminateSession, terminateAllUserSessions } from './database';
 
 // Validate password strength
 function validatePasswordStrength(password) {
@@ -38,7 +38,7 @@ async function verifyPassword(password, hash) {
 }
 
 // Login function
-export async function login(username, password) {
+export async function login(username, password, deviceInfo = {}) {
   try {
     console.log('🔐 Attempting login for user:', username);
     
@@ -49,6 +49,16 @@ export async function login(username, password) {
     if (!user) {
       console.error('❌ User not found:', username);
       throw new Error('Usuario no encontrado');
+    }
+
+    // Check if account is locked
+    const lockStatus = await isAccountLocked(user.id);
+    console.log('🔒 Account lock status:', lockStatus);
+    
+    if (lockStatus.locked) {
+      const errorMessage = `ERR-01: Su cuenta está bloqueada temporalmente por seguridad debido a múltiples intentos fallidos. Debe esperar ${lockStatus.remainingMinutes} minuto(s) más o contactar al administrador.`;
+      console.error('🔒 Account locked:', errorMessage);
+      throw new Error(errorMessage);
     }
 
     // Check if user is active
@@ -64,14 +74,55 @@ export async function login(username, password) {
     
     if (!isValid) {
       console.error('❌ Invalid password for user:', username);
-      throw new Error('Contraseña incorrecta');
+      
+      // Increment failed login attempts
+      const attemptResult = await incrementFailedLoginAttempts(user.id);
+      console.log('⚠️ Failed attempt result:', attemptResult);
+      
+      if (attemptResult && attemptResult.locked) {
+        throw new Error('ERR-01: Contraseña incorrecta. Su cuenta ha sido bloqueada temporalmente por 15 minutos debido a 3 intentos fallidos consecutivos. Debe esperar ese tiempo o contactar al administrador.');
+      } else if (attemptResult) {
+        const remaining = attemptResult.remainingAttempts;
+        throw new Error(`Contraseña incorrecta. Le quedan ${remaining} intento(s) antes de que su cuenta sea bloqueada temporalmente.`);
+      } else {
+        throw new Error('Contraseña incorrecta');
+      }
     }
 
-    // Update last login
+    // Session management
+    let sessionToken = null;
+    let sessionWarning = null;
+    
+    try {
+      // Check for existing active session
+      const sessionCheck = await hasActiveSession(user.id);
+      console.log('📱 Session check:', sessionCheck);
+      
+      if (sessionCheck.hasSession) {
+        console.warn('⚠️ Existing session detected, will be terminated');
+        await terminateAllUserSessions(user.id);
+        sessionWarning = 'Sesión anterior cerrada automáticamente';
+      }
+
+      // Create new session
+      const sessionResult = await createSession(user.id, {
+        browser: deviceInfo.browser || 'Unknown Browser',
+        os: deviceInfo.os || 'Unknown OS',
+        ipAddress: deviceInfo.ipAddress || 'Unknown',
+        userAgent: deviceInfo.userAgent || (typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown')
+      });
+      
+      sessionToken = sessionResult.sessionToken;
+    } catch (sessionError) {
+      console.error('⚠️ Session management error (non-critical):', sessionError);
+      // Continue with login even if session management fails
+    }
+
+    // Update last login and reset failed attempts
     await updateLastLogin(user.id);
     console.log('✅ Login successful for user:', username, '- Role:', user.role);
 
-    // Return user data (without password hash)
+    // Return user data (without password hash) with session token
     return {
       id: user.id,
       username: user.username,
@@ -80,7 +131,9 @@ export async function login(username, password) {
       email: user.email,
       phone: user.phone,
       department: user.department,
-      specialization: user.specialization
+      specialization: user.specialization,
+      sessionToken: sessionToken,
+      sessionWarning: sessionWarning
     };
   } catch (error) {
     console.error('❌ Login error:', error);
@@ -183,10 +236,21 @@ export async function createDefaultUsers() {
 }
 
 // Logout function (clears session)
-export function logout() {
-  // In a real app, this would clear tokens/sessions
-  console.log('User logged out');
-  return { success: true };
+export async function logout(sessionToken) {
+  try {
+    console.log('🚪 Logging out...');
+    
+    if (sessionToken) {
+      // Terminate the session in database
+      await terminateSession(sessionToken);
+      console.log('✅ Session terminated successfully');
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Logout error:', error);
+    throw error;
+  }
 }
 
 // Change password function
@@ -303,6 +367,48 @@ export async function resetPasswordWithToken(token, newPassword) {
 }
 
 // Recover password by license number (for nurses)
+// Password recovery - Send email (simulated)
+export async function requestPasswordRecovery(licenseNumber) {
+  try {
+    console.log('📧 Requesting password recovery for license:', licenseNumber);
+    const { getUserByLicenseNumber } = await import('./database');
+    
+    // Find nurse by license number
+    const user = await getUserByLicenseNumber(licenseNumber);
+    
+    if (!user) {
+      console.error('❌ ERR-03: No nurse found with this license number');
+      throw new Error('No se encontró un enfermero con esta cédula profesional');
+    }
+
+    // Check if user is active
+    if (user.is_active === 0) {
+      console.error('❌ User account is inactive');
+      throw new Error('Esta cuenta ha sido desactivada');
+    }
+
+    // In a real application, this would:
+    // 1. Generate a secure reset token
+    // 2. Store the token with expiration in database
+    // 3. Send email with reset link containing the token
+    
+    console.log('✅ MSG-02: Recovery email would be sent to:', user.email);
+    console.log('📧 Email would contain reset link for user:', user.name);
+    
+    // Simulate email sending success
+    return { 
+      success: true, 
+      message: 'Se envió un correo para la recuperación de contraseña',
+      email: user.email,
+      username: user.username
+    };
+  } catch (error) {
+    console.error('❌ Password recovery request error:', error);
+    throw error;
+  }
+}
+
+// Password recovery - Old method (kept for backwards compatibility)
 export async function recoverPasswordByLicense(licenseNumber, newPassword) {
   try {
     console.log('🔐 Attempting password recovery with license number');

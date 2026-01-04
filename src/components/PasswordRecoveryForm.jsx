@@ -1,11 +1,9 @@
 import React, { useState } from 'react';
-import { Key, ArrowLeft, CheckCircle, AlertCircle } from 'lucide-react';
-import { recoverPasswordByLicense } from '../services/auth';
+import { Key, ArrowLeft, CheckCircle, AlertCircle, Mail } from 'lucide-react';
+import { requestPasswordRecovery } from '../services/auth';
 
 export default function PasswordRecoveryForm({ onBack, onRecoverySuccess }) {
   const [licenseNumber, setLicenseNumber] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -16,59 +14,33 @@ export default function PasswordRecoveryForm({ onBack, onRecoverySuccess }) {
     setSuccessMessage('');
     setIsLoading(true);
 
-    // Validar que las contraseñas coincidan
-    if (newPassword !== confirmPassword) {
-      setError('Las contraseñas no coinciden');
-      setIsLoading(false);
-      return;
-    }
-
-    // Validar requisitos de seguridad de contraseña
-    if (newPassword.length <= 6) {
-      setError('La contraseña debe tener más de 6 caracteres (mínimo 7)');
-      setIsLoading(false);
-      return;
-    }
-    
-    if (!/[A-Z]/.test(newPassword)) {
-      setError('La contraseña debe contener al menos una letra mayúscula');
-      setIsLoading(false);
-      return;
-    }
-    
-    if (!/[a-z]/.test(newPassword)) {
-      setError('La contraseña debe contener al menos una letra minúscula');
-      setIsLoading(false);
-      return;
-    }
-    
-    if (!/[0-9]/.test(newPassword)) {
-      setError('La contraseña debe contener al menos un número');
-      setIsLoading(false);
-      return;
-    }
-
     try {
+      // Simular tiempo de procesamiento
       await new Promise(resolve => setTimeout(resolve, 800));
-      const result = await recoverPasswordByLicense(licenseNumber, newPassword);
       
-      setSuccessMessage(`✅ ${result.message}. Usuario: ${result.username}`);
+      const result = await requestPasswordRecovery(licenseNumber);
       
-      // Limpiar campos
+      // MSG-02: Mensaje de éxito
+      setSuccessMessage('MSG-02: Se envió un correo para la recuperación de contraseña. Revise su correo institucional para seguir las instrucciones.');
+      
+      // Limpiar campo
       setLicenseNumber('');
-      setNewPassword('');
-      setConfirmPassword('');
       
-      // Redirigir al login después de 3 segundos
+      // Redirigir al login después de 5 segundos
       setTimeout(() => {
         if (onRecoverySuccess) {
           onRecoverySuccess(result);
         } else {
           onBack();
         }
-      }, 3000);
+      }, 5000);
     } catch (err) {
-      setError(err.message || 'Error al recuperar la contraseña');
+      // ERR-03: Error de cédula inexistente
+      if (err.message.includes('No se encontró') || err.message.includes('no existe')) {
+        setError('ERR-03: Cédula inexistente');
+      } else {
+        setError(err.message || 'Error al solicitar recuperación de contraseña');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -98,7 +70,7 @@ export default function PasswordRecoveryForm({ onBack, onRecoverySuccess }) {
         {/* Title */}
         <div className="text-center mb-8">
           <h2 className="text-3xl font-black text-gray-800 mb-2">Recuperar Contraseña</h2>
-          <p className="text-sm text-gray-600">Ingrese su cédula profesional para restablecer su contraseña</p>
+          <p className="text-sm text-gray-600">Ingrese su cédula profesional. Le enviaremos las instrucciones a su correo institucional.</p>
         </div>
 
         {error && (
@@ -109,11 +81,11 @@ export default function PasswordRecoveryForm({ onBack, onRecoverySuccess }) {
         )}
 
         {successMessage && (
-          <div className="mb-6 p-4 bg-emerald-50 border-2 border-emerald-200 rounded-xl flex items-start gap-3">
-            <CheckCircle size={20} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+          <div className="mb-6 p-4 bg-emerald-50 border-2 border-emerald-200 rounded-xl flex items-start gap-3 animate-scaleIn">
+            <Mail size={20} className="text-emerald-600 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm text-emerald-800 font-medium">{successMessage}</p>
-              <p className="text-xs text-emerald-700 mt-1">Serás redirigido al login...</p>
+              <p className="text-sm text-emerald-800 font-semibold">{successMessage}</p>
+              <p className="text-xs text-emerald-700 mt-2">⏱️ Será redirigido al login en 5 segundos...</p>
             </div>
           </div>
         )}
@@ -123,85 +95,41 @@ export default function PasswordRecoveryForm({ onBack, onRecoverySuccess }) {
             <label className="block text-sm font-bold text-gray-700 mb-2">
               Cédula Profesional
             </label>
-            <input
-              type="text"
-              required
-              placeholder="Ingrese su cédula profesional"
-              value={licenseNumber}
-              onChange={(e) => setLicenseNumber(e.target.value)}
-              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/30 outline-none transition-all text-base"
-              disabled={isLoading || successMessage}
-            />
-            <p className="text-xs text-gray-500 mt-1">
+            <div className="relative">
+              <input
+                type="text"
+                required
+                placeholder="Ingrese su cédula profesional"
+                value={licenseNumber}
+                onChange={(e) => setLicenseNumber(e.target.value)}
+                className="w-full px-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/30 outline-none transition-all text-base font-medium"
+                disabled={isLoading || successMessage}
+                autoFocus
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+              <AlertCircle size={12} />
               Solo para personal de enfermería registrado
             </p>
           </div>
 
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-2">
-              Nueva Contraseña
-            </label>
-            <input
-              type="password"
-              required
-              placeholder="Ingrese nueva contraseña"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/30 outline-none transition-all text-base"
-              disabled={isLoading || successMessage}
-              minLength={7}
-            />
-            <div className="mt-2 space-y-1">
-              <p className="text-xs font-semibold text-gray-700">Requisitos de seguridad:</p>
-              <div className="flex items-center gap-1.5">
-                <div className={`w-1.5 h-1.5 rounded-full ${newPassword.length > 6 ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                <p className={`text-xs ${newPassword.length > 6 ? 'text-green-600 font-semibold' : 'text-gray-500'}`}>Más de 6 caracteres</p>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className={`w-1.5 h-1.5 rounded-full ${/[A-Z]/.test(newPassword) ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                <p className={`text-xs ${/[A-Z]/.test(newPassword) ? 'text-green-600 font-semibold' : 'text-gray-500'}`}>Al menos 1 mayúscula</p>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className={`w-1.5 h-1.5 rounded-full ${/[a-z]/.test(newPassword) ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                <p className={`text-xs ${/[a-z]/.test(newPassword) ? 'text-green-600 font-semibold' : 'text-gray-500'}`}>Al menos 1 minúscula</p>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className={`w-1.5 h-1.5 rounded-full ${/[0-9]/.test(newPassword) ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                <p className={`text-xs ${/[0-9]/.test(newPassword) ? 'text-green-600 font-semibold' : 'text-gray-500'}`}>Al menos 1 número</p>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-2">
-              Confirmar Nueva Contraseña
-            </label>
-            <input
-              type="password"
-              required
-              placeholder="Confirme la nueva contraseña"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/30 outline-none transition-all text-base"
-              disabled={isLoading || successMessage}
-              minLength={6}
-            />
-          </div>
-
           <button
             type="submit"
-            disabled={isLoading || successMessage || !licenseNumber || !newPassword || !confirmPassword}
+            disabled={isLoading || successMessage || !licenseNumber}
             className="w-full py-3.5 mt-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-base disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40"
           >
             {isLoading ? (
               <div className="flex items-center justify-center gap-2">
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                <span>Recuperando...</span>
+                <span>Enviando...</span>
               </div>
             ) : successMessage ? (
-              'Contraseña Actualizada'
+              <span className="flex items-center justify-center gap-2">
+                <CheckCircle size={20} />
+                Correo Enviado
+              </span>
             ) : (
-              'Restablecer Contraseña'
+              'Enviar Correo de Recuperación'
             )}
           </button>
         </form>
@@ -217,8 +145,11 @@ export default function PasswordRecoveryForm({ onBack, onRecoverySuccess }) {
         </div>
 
         <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-          <p className="text-sm text-blue-900 font-semibold mb-1">Ayuda:</p>
-          <p className="text-xs text-blue-800">Si no recuerdas tu cédula profesional, contacta al administrador del sistema.</p>
+          <p className="text-sm text-blue-900 font-semibold mb-1 flex items-center gap-1.5">
+            <Mail size={14} />
+            Nota Importante:
+          </p>
+          <p className="text-xs text-blue-800 leading-relaxed">El enlace de recuperación será enviado a su correo institucional registrado. Si no tiene acceso a su correo o no recuerda su cédula profesional, contacte al administrador del sistema.</p>
         </div>
       </div>
     </div>

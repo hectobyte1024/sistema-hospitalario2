@@ -15,6 +15,9 @@ export async function initDatabase() {
     // Create tables if they don't exist
     await createTables();
     
+    // Migrate existing tables to add new columns
+    await migrateDatabase();
+    
     return db;
   } catch (error) {
     console.error('Failed to initialize database:', error);
@@ -101,6 +104,8 @@ async function createTables() {
         assigned_shifts TEXT,
         is_active INTEGER DEFAULT 1,
         last_login TEXT,
+        failed_login_attempts INTEGER DEFAULT 0,
+        account_locked_until TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
@@ -795,10 +800,118 @@ async function createTables() {
     )
   `);
 
+  // User sessions table for single session enforcement
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      session_token TEXT UNIQUE NOT NULL,
+      device_info TEXT,
+      ip_address TEXT,
+      user_agent TEXT,
+      login_time TEXT NOT NULL,
+      last_activity TEXT NOT NULL,
+      is_active INTEGER DEFAULT 1,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  console.log('✓ User sessions table created');
+
   console.log('✓ Database tables created successfully');
   } catch (error) {
     console.error('Error creating tables:', error);
     throw new Error(`Failed to create tables: ${error.message || error}`);
+  }
+}
+
+// Migrate database to add new columns
+async function migrateDatabase() {
+  try {
+    console.log('Running database migrations...');
+    
+    // Add failed_login_attempts and account_locked_until columns to users table if they don't exist
+    try {
+      await db.execute(`
+        ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0
+      `);
+      console.log('✓ Added failed_login_attempts column to users table');
+    } catch (error) {
+      // Column might already exist, ignore error
+      if (!error.message?.includes('duplicate column')) {
+        console.log('Note: failed_login_attempts column may already exist');
+      }
+    }
+    
+    try {
+      await db.execute(`
+        ALTER TABLE users ADD COLUMN account_locked_until TEXT
+      `);
+      console.log('✓ Added account_locked_until column to users table');
+    } catch (error) {
+      // Column might already exist, ignore error
+      if (!error.message?.includes('duplicate column')) {
+        console.log('Note: account_locked_until column may already exist');
+      }
+    }
+    
+    try {
+      await db.execute(`
+        ALTER TABLE users ADD COLUMN phone TEXT
+      `);
+      console.log('✓ Added phone column to users table');
+    } catch (error) {
+      console.log('Note: phone column may already exist');
+    }
+    
+    try {
+      await db.execute(`
+        ALTER TABLE users ADD COLUMN last_login TEXT
+      `);
+      console.log('✓ Added last_login column to users table');
+    } catch (error) {
+      console.log('Note: last_login column may already exist');
+    }
+    
+    try {
+      await db.execute(`
+        ALTER TABLE treatments ADD COLUMN status TEXT DEFAULT 'Activo'
+      `);
+      console.log('✓ Added status column to treatments table');
+    } catch (error) {
+      console.log('Note: status column may already exist');
+    }
+    
+    try {
+      await db.execute(`
+        ALTER TABLE users ADD COLUMN department TEXT
+      `);
+      console.log('✓ Added department column to users table');
+    } catch (error) {
+      console.log('Note: department column may already exist');
+    }
+    
+    try {
+      await db.execute(`
+        ALTER TABLE users ADD COLUMN specialization TEXT
+      `);
+      console.log('✓ Added specialization column to users table');
+    } catch (error) {
+      console.log('Note: specialization column may already exist');
+    }
+    
+    try {
+      await db.execute(`
+        ALTER TABLE users ADD COLUMN email TEXT
+      `);
+      console.log('✓ Added email column to users table');
+    } catch (error) {
+      console.log('Note: email column may already exist');
+    }
+    
+    console.log('✓ Database migrations completed');
+  } catch (error) {
+    console.error('Error during migration:', error);
+    // Don't throw error, as migrations are optional
   }
 }
 
@@ -3154,6 +3267,78 @@ export async function initializeSampleNurseData() {
   }
 }
 
+// Inicializar medicamentos de ejemplo en el inventario de farmacia
+export async function initializeSamplePharmacy() {
+  try {
+    const db = await initDatabase();
+    
+    // Verificar si ya existen medicamentos
+    const existingMeds = await db.select('SELECT COUNT(*) as count FROM pharmacy_inventory');
+    if (existingMeds[0].count > 0) {
+      console.log('Sample pharmacy inventory already exists');
+      return;
+    }
+    
+    const sampleMedications = [
+      // Analgésicos
+      { medication_name: 'Paracetamol', generic_name: 'Acetaminofén', category: 'Analgésico', quantity: 500, unit: 'tabletas', reorder_level: 100, unit_price: 0.15, supplier: 'Pharma Corp', batch_number: 'PC-2024-001', manufacture_date: '2024-01-15', expiry_date: '2026-01-15', storage_location: 'A1-001' },
+      { medication_name: 'Ibuprofeno 400mg', generic_name: 'Ibuprofeno', category: 'Analgésico', quantity: 300, unit: 'tabletas', reorder_level: 80, unit_price: 0.25, supplier: 'MedSupply', batch_number: 'MS-2024-002', manufacture_date: '2024-02-10', expiry_date: '2026-02-10', storage_location: 'A1-002' },
+      { medication_name: 'Tramadol 50mg', generic_name: 'Tramadol', category: 'Analgésico Opioide', quantity: 150, unit: 'cápsulas', reorder_level: 50, unit_price: 0.80, supplier: 'Pharma Corp', batch_number: 'PC-2024-003', manufacture_date: '2024-03-05', expiry_date: '2025-12-05', storage_location: 'A2-001' },
+      
+      // Antibióticos
+      { medication_name: 'Amoxicilina 500mg', generic_name: 'Amoxicilina', category: 'Antibiótico', quantity: 400, unit: 'cápsulas', reorder_level: 100, unit_price: 0.35, supplier: 'MedSupply', batch_number: 'MS-2024-004', manufacture_date: '2024-01-20', expiry_date: '2026-01-20', storage_location: 'B1-001' },
+      { medication_name: 'Ciprofloxacino 500mg', generic_name: 'Ciprofloxacino', category: 'Antibiótico', quantity: 200, unit: 'tabletas', reorder_level: 60, unit_price: 0.60, supplier: 'Pharma Corp', batch_number: 'PC-2024-005', manufacture_date: '2024-02-15', expiry_date: '2026-02-15', storage_location: 'B1-002' },
+      { medication_name: 'Penicilina G Sódica', generic_name: 'Penicilina', category: 'Antibiótico', quantity: 0, unit: 'viales', reorder_level: 20, unit_price: 3.50, supplier: 'BioMed', batch_number: 'BM-2024-006', manufacture_date: '2024-01-10', expiry_date: '2025-06-10', storage_location: 'B2-001' },
+      
+      // Antiinflamatorios
+      { medication_name: 'Diclofenaco 75mg', generic_name: 'Diclofenaco', category: 'Antiinflamatorio', quantity: 250, unit: 'tabletas', reorder_level: 70, unit_price: 0.30, supplier: 'MedSupply', batch_number: 'MS-2024-007', manufacture_date: '2024-03-01', expiry_date: '2026-03-01', storage_location: 'A1-003' },
+      
+      // Antihipertensivos
+      { medication_name: 'Losartán 50mg', generic_name: 'Losartán', category: 'Antihipertensivo', quantity: 350, unit: 'tabletas', reorder_level: 90, unit_price: 0.40, supplier: 'Pharma Corp', batch_number: 'PC-2024-008', manufacture_date: '2024-01-25', expiry_date: '2026-01-25', storage_location: 'C1-001' },
+      { medication_name: 'Enalapril 10mg', generic_name: 'Enalapril', category: 'Antihipertensivo', quantity: 300, unit: 'tabletas', reorder_level: 80, unit_price: 0.35, supplier: 'MedSupply', batch_number: 'MS-2024-009', manufacture_date: '2024-02-20', expiry_date: '2026-02-20', storage_location: 'C1-002' },
+      
+      // Antidiabéticos
+      { medication_name: 'Metformina 850mg', generic_name: 'Metformina', category: 'Antidiabético', quantity: 400, unit: 'tabletas', reorder_level: 100, unit_price: 0.20, supplier: 'Pharma Corp', batch_number: 'PC-2024-010', manufacture_date: '2024-01-30', expiry_date: '2026-01-30', storage_location: 'C2-001' },
+      
+      // Soluciones Intravenosas
+      { medication_name: 'Suero Fisiológico 0.9%', generic_name: 'Cloruro de Sodio', category: 'Solución IV', quantity: 200, unit: 'bolsas 500ml', reorder_level: 50, unit_price: 2.50, supplier: 'BioMed', batch_number: 'BM-2024-011', manufacture_date: '2024-03-10', expiry_date: '2027-03-10', storage_location: 'D1-001' },
+      { medication_name: 'Dextrosa 5%', generic_name: 'Glucosa', category: 'Solución IV', quantity: 150, unit: 'bolsas 500ml', reorder_level: 40, unit_price: 2.80, supplier: 'BioMed', batch_number: 'BM-2024-012', manufacture_date: '2024-03-10', expiry_date: '2027-03-10', storage_location: 'D1-002' },
+      
+      // Anticoagulantes
+      { medication_name: 'Heparina Sódica', generic_name: 'Heparina', category: 'Anticoagulante', quantity: 100, unit: 'viales', reorder_level: 30, unit_price: 4.50, supplier: 'Pharma Corp', batch_number: 'PC-2024-013', manufacture_date: '2024-02-05', expiry_date: '2025-08-05', storage_location: 'E1-001' },
+      
+      // Antieméticos
+      { medication_name: 'Metoclopramida 10mg', generic_name: 'Metoclopramida', category: 'Antiemético', quantity: 180, unit: 'tabletas', reorder_level: 50, unit_price: 0.25, supplier: 'MedSupply', batch_number: 'MS-2024-014', manufacture_date: '2024-03-15', expiry_date: '2026-03-15', storage_location: 'A3-001' },
+      
+      // Antihistamínicos (con alergia en paciente María García)
+      { medication_name: 'Dipirona 1g', generic_name: 'Metamizol', category: 'Analgésico', quantity: 220, unit: 'ampollas', reorder_level: 60, unit_price: 0.90, supplier: 'BioMed', batch_number: 'BM-2024-015', manufacture_date: '2024-01-18', expiry_date: '2025-07-18', storage_location: 'A2-002' },
+      
+      // Broncodilatadores
+      { medication_name: 'Salbutamol 100mcg', generic_name: 'Salbutamol', category: 'Broncodilatador', quantity: 80, unit: 'inhaladores', reorder_level: 25, unit_price: 5.50, supplier: 'Pharma Corp', batch_number: 'PC-2024-016', manufacture_date: '2024-02-28', expiry_date: '2026-02-28', storage_location: 'F1-001' }
+    ];
+    
+    for (const med of sampleMedications) {
+      await db.execute(
+        `INSERT INTO pharmacy_inventory (
+          medication_name, generic_name, category, quantity, unit, 
+          reorder_level, unit_price, supplier, batch_number, 
+          manufacture_date, expiry_date, storage_location, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Available')`,
+        [
+          med.medication_name, med.generic_name, med.category, med.quantity, med.unit,
+          med.reorder_level, med.unit_price, med.supplier, med.batch_number,
+          med.manufacture_date, med.expiry_date, med.storage_location
+        ]
+      );
+    }
+    
+    console.log(`✓ Created ${sampleMedications.length} sample medications in pharmacy inventory`);
+    
+  } catch (error) {
+    console.error('Error initializing sample pharmacy:', error);
+  }
+}
+
 // Create new user
 export async function createUser(userData) {
   try {
@@ -3235,11 +3420,211 @@ export async function updateLastLogin(id) {
   try {
     const now = new Date().toISOString();
     await db.execute(
-      'UPDATE users SET last_login = ? WHERE id = ?',
+      'UPDATE users SET last_login = ?, failed_login_attempts = 0, account_locked_until = NULL WHERE id = ?',
       [now, id]
     );
   } catch (error) {
     console.error('Error updating last login:', error);
+  }
+}
+
+// Increment failed login attempts
+export async function incrementFailedLoginAttempts(userId) {
+  try {
+    const user = await getUserById(userId);
+    if (!user) return null;
+    
+    const newAttempts = (user.failed_login_attempts || 0) + 1;
+    
+    // Lock account for 15 minutes after 3 failed attempts
+    if (newAttempts >= 3) {
+      const lockUntil = new Date();
+      lockUntil.setMinutes(lockUntil.getMinutes() + 15);
+      
+      await db.execute(
+        'UPDATE users SET failed_login_attempts = ?, account_locked_until = ? WHERE id = ?',
+        [newAttempts, lockUntil.toISOString(), userId]
+      );
+      
+      return { locked: true, attempts: newAttempts, lockUntil: lockUntil.toISOString() };
+    } else {
+      await db.execute(
+        'UPDATE users SET failed_login_attempts = ? WHERE id = ?',
+        [newAttempts, userId]
+      );
+      
+      return { locked: false, attempts: newAttempts, remainingAttempts: 3 - newAttempts };
+    }
+  } catch (error) {
+    console.error('Error incrementing failed login attempts:', error);
+    return null;
+  }
+}
+
+// Check if account is locked
+export async function isAccountLocked(userId) {
+  try {
+    const user = await getUserById(userId);
+    if (!user) return { locked: false };
+    
+    if (!user.account_locked_until) {
+      return { locked: false, attempts: user.failed_login_attempts || 0 };
+    }
+    
+    const lockUntil = new Date(user.account_locked_until);
+    const now = new Date();
+    
+    // Check if lock period has expired
+    if (now >= lockUntil) {
+      // Auto-unlock account
+      await db.execute(
+        'UPDATE users SET failed_login_attempts = 0, account_locked_until = NULL WHERE id = ?',
+        [userId]
+      );
+      return { locked: false, wasLocked: true };
+    }
+    
+    const remainingMinutes = Math.ceil((lockUntil - now) / 60000);
+    return { 
+      locked: true, 
+      lockUntil: user.account_locked_until,
+      remainingMinutes,
+      attempts: user.failed_login_attempts
+    };
+  } catch (error) {
+    console.error('Error checking account lock:', error);
+    return { locked: false };
+  }
+}
+
+// ========== SESSION MANAGEMENT ==========
+
+// Generate unique session token
+function generateSessionToken() {
+  return crypto.randomUUID ? crypto.randomUUID() : 
+    `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+}
+
+// Create new session
+export async function createSession(userId, deviceInfo = {}) {
+  try {
+    const sessionToken = generateSessionToken();
+    const now = new Date().toISOString();
+    
+    // Terminate any existing active sessions for this user
+    await db.execute(
+      'UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND is_active = 1',
+      [userId]
+    );
+    
+    // Create new session
+    await db.execute(
+      `INSERT INTO user_sessions 
+       (user_id, session_token, device_info, ip_address, user_agent, login_time, last_activity) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        userId,
+        sessionToken,
+        JSON.stringify(deviceInfo),
+        deviceInfo.ipAddress || 'Unknown',
+        deviceInfo.userAgent || 'Unknown',
+        now,
+        now
+      ]
+    );
+    
+    console.log('✅ New session created for user:', userId);
+    return { sessionToken, created: true };
+  } catch (error) {
+    console.error('Error creating session:', error);
+    throw error;
+  }
+}
+
+// Check if user has active session
+export async function hasActiveSession(userId) {
+  try {
+    const sessions = await db.select(
+      'SELECT * FROM user_sessions WHERE user_id = ? AND is_active = 1 ORDER BY login_time DESC',
+      [userId]
+    );
+    
+    if (sessions && sessions.length > 0) {
+      const session = sessions[0];
+      const deviceInfo = session.device_info ? JSON.parse(session.device_info) : {};
+      
+      return {
+        hasSession: true,
+        session: {
+          loginTime: session.login_time,
+          lastActivity: session.last_activity,
+          deviceInfo: deviceInfo,
+          ipAddress: session.ip_address,
+          userAgent: session.user_agent
+        }
+      };
+    }
+    
+    return { hasSession: false };
+  } catch (error) {
+    console.error('Error checking active session:', error);
+    return { hasSession: false };
+  }
+}
+
+// Terminate session
+export async function terminateSession(sessionToken) {
+  try {
+    await db.execute(
+      'UPDATE user_sessions SET is_active = 0 WHERE session_token = ?',
+      [sessionToken]
+    );
+    console.log('✅ Session terminated:', sessionToken);
+  } catch (error) {
+    console.error('Error terminating session:', error);
+  }
+}
+
+// Terminate all user sessions
+export async function terminateAllUserSessions(userId) {
+  try {
+    await db.execute(
+      'UPDATE user_sessions SET is_active = 0 WHERE user_id = ?',
+      [userId]
+    );
+    console.log('✅ All sessions terminated for user:', userId);
+  } catch (error) {
+    console.error('Error terminating user sessions:', error);
+  }
+}
+
+// Update session activity
+export async function updateSessionActivity(sessionToken) {
+  try {
+    const now = new Date().toISOString();
+    await db.execute(
+      'UPDATE user_sessions SET last_activity = ? WHERE session_token = ? AND is_active = 1',
+      [now, sessionToken]
+    );
+  } catch (error) {
+    console.error('Error updating session activity:', error);
+  }
+}
+
+// Get user by session token
+export async function getUserBySessionToken(sessionToken) {
+  try {
+    const sessions = await db.select(
+      `SELECT u.* FROM users u 
+       INNER JOIN user_sessions s ON u.id = s.user_id 
+       WHERE s.session_token = ? AND s.is_active = 1`,
+      [sessionToken]
+    );
+    
+    return sessions && sessions.length > 0 ? sessions[0] : null;
+  } catch (error) {
+    console.error('Error getting user by session token:', error);
+    return null;
   }
 }
 

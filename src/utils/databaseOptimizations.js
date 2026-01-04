@@ -24,7 +24,7 @@ export async function createDatabaseIndexes() {
     
     // Índices para tabla treatments
     await db.execute('CREATE INDEX IF NOT EXISTS idx_treatments_patient ON treatments(patient_id)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_treatments_status ON treatments(status)');
+    // await db.execute('CREATE INDEX IF NOT EXISTS idx_treatments_status ON treatments(status)'); // Commented until migration runs
     await db.execute('CREATE INDEX IF NOT EXISTS idx_treatments_date ON treatments(start_date)');
     
     // Índices para tabla appointments
@@ -35,7 +35,7 @@ export async function createDatabaseIndexes() {
     // Índices para tabla nurse_notes
     await db.execute('CREATE INDEX IF NOT EXISTS idx_notes_patient ON nurse_notes(patient_id)');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_notes_date ON nurse_notes(date)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_notes_type ON nurse_notes(note_type)');
+    // await db.execute('CREATE INDEX IF NOT EXISTS idx_notes_type ON nurse_notes(note_type)'); // Commented - column doesn't exist
     
     // Índices para tabla users
     await db.execute('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)');
