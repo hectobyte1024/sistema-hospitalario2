@@ -2,7 +2,7 @@ import Database from '@tauri-apps/plugin-sql';
 
 let db = null;
 
-// Inicializar conexión
+// Initialize database connection
 export async function initDatabase() {
   if (db) return db;
   
@@ -11,10 +11,7 @@ export async function initDatabase() {
     db = await Database.load('sqlite:hospital.db');
     console.log('Database loaded successfully');
     
-    // Crear tablas
     await createTables();
-    
-    // Inyectar datos de prueba para la Demo (ECU-01, ECU-11, ECU-14)
     await seedInitialData();
     
     return db;
@@ -24,10 +21,12 @@ export async function initDatabase() {
   }
 }
 
-// TU ESQUEMA ORIGINAL DE TABLAS (COMPLETO)
+// Create all database tables (SCHEMA COMPLETO)
 async function createTables() {
   try {
-    // Tabla Usuarios (Aseguramos license_number para la Cédula)
+    console.log('Creating database tables...');
+    
+    // Users table
     await db.execute(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,13 +35,13 @@ async function createTables() {
         role TEXT NOT NULL,
         name TEXT NOT NULL,
         email TEXT,
-        license_number TEXT, 
+        license_number TEXT,
         assigned_shifts TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    // Tabla Pacientes
+    // Patients table
     await db.execute(`
       CREATE TABLE IF NOT EXISTS patients (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,7 +57,7 @@ async function createTables() {
       )
     `);
 
-    // Tabla Signos Vitales (Para ECU-11 Gráficas)
+    // Vital signs table
     await db.execute(`
       CREATE TABLE IF NOT EXISTS vital_signs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,7 +73,7 @@ async function createTables() {
       )
     `);
 
-    // Tabla Tratamientos/Medicamentos (Para ECU-09B Kardex)
+    // Treatments table
     await db.execute(`
       CREATE TABLE IF NOT EXISTS treatments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,7 +84,6 @@ async function createTables() {
         start_date TEXT NOT NULL,
         last_application TEXT,
         applied_by TEXT,
-        route TEXT,
         status TEXT DEFAULT 'Activo',
         notes TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -93,7 +91,7 @@ async function createTables() {
       )
     `);
 
-    // Tabla Notas de Enfermería (Para ECU-06B Historial)
+    // Nurse notes table
     await db.execute(`
       CREATE TABLE IF NOT EXISTS nurse_notes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,7 +104,7 @@ async function createTables() {
         FOREIGN KEY (patient_id) REFERENCES patients(id)
       )
     `);
-    
+
     // Appointments table
     await db.execute(`
       CREATE TABLE IF NOT EXISTS appointments (
@@ -121,15 +119,72 @@ async function createTables() {
       )
     `);
 
-    console.log('✓ Tablas verificadas/creadas correctamente');
+    console.log('✓ Database tables created/verified successfully');
   } catch (error) {
     console.error('Error creating tables:', error);
+    throw new Error(`Failed to create tables: ${error.message || error}`);
   }
 }
 
-// ================= FUNCIONES DE ACCESO (MODULOS) =================
+// ========== DATA SEEDING (CRÍTICO PARA LOGIN Y GRÁFICAS) ==========
 
-// ECU-01: Autenticación por Cédula
+export async function seedInitialData() {
+  const db = await initDatabase();
+  
+  // 1. Verificar si existe el usuario ENFERMERO con Cédula
+  const users = await db.select("SELECT count(*) as count FROM users WHERE license_number = 'ENF-12345'");
+  
+  if (users[0].count === 0) {
+    console.log('Seeding default Nurse User...');
+    await db.execute(`
+      INSERT INTO users (username, password_hash, role, name, email, license_number, assigned_shifts)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      'enfermero', 
+      'hash_enfermeros123', 
+      'nurse', 
+      'Enf. Laura Martínez', 
+      'laura@hospital.com', 
+      'ENF-12345', 
+      '{"start": "06:00", "end": "22:00", "area": "Piso 3 - Ala Norte"}' 
+    ]);
+  }
+
+  // 2. Verificar Pacientes
+  const patients = await db.select("SELECT count(*) as count FROM patients");
+  if (patients[0].count === 0) {
+      console.log('Seeding Patients...');
+      await db.execute(`INSERT INTO patients (name, age, room, condition, admission_date, blood_type, allergies, diagnosis) VALUES ('Juan Pérez', 45, '301-A', 'Estable', '2025-10-20', 'O+', 'Penicilina', 'Neumonía')`);
+      await db.execute(`INSERT INTO patients (name, age, room, condition, admission_date, blood_type, allergies, diagnosis) VALUES ('María González', 62, '302-B', 'Crítico', '2025-10-21', 'A-', 'Ninguna', 'Post-operatorio')`);
+      await db.execute(`INSERT INTO patients (name, age, room, condition, admission_date, blood_type, allergies, diagnosis) VALUES ('Carlos Ruiz', 28, '303-A', 'Recuperación', '2025-10-23', 'B+', 'Polen', 'Apendicectomía')`);
+  }
+
+  // 3. Verificar Signos Vitales (Para gráficas ECU-11)
+  const vitals = await db.select("SELECT count(*) as count FROM vital_signs");
+  if (vitals[0].count === 0) {
+      console.log('Seeding Vital Signs History...');
+      const pId = 1; 
+      const dates = [
+          { d: '24/10 08:00', t: '36.5', bp: '120/80', hr: '72' },
+          { d: '24/10 12:00', t: '37.2', bp: '125/82', hr: '78' },
+          { d: '24/10 16:00', t: '37.8', bp: '130/85', hr: '85' },
+          { d: '24/10 20:00', t: '38.5', bp: '135/88', hr: '92' },
+          { d: '25/10 00:00', t: '37.5', bp: '128/82', hr: '80' },
+          { d: '25/10 04:00', t: '36.8', bp: '122/80', hr: '74' }
+      ];
+
+      for (const v of dates) {
+          await db.execute(
+              `INSERT INTO vital_signs (patient_id, date, temperature, blood_pressure, heart_rate, respiratory_rate, registered_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [pId, v.d, v.t, v.bp, v.hr, '18', 'Sistema']
+          );
+      }
+  }
+}
+
+// ========== FUNCIONES DE ACCESO (DATA ACCESS LAYER) ==========
+
 export async function getUserByCedula(cedula) {
   const db = await initDatabase();
   const result = await db.select(
@@ -139,28 +194,24 @@ export async function getUserByCedula(cedula) {
   return result.length > 0 ? result[0] : null;
 }
 
-// ECU-03: Visualizar Pacientes
 export async function getPatients() {
   const db = await initDatabase();
-  return await db.select('SELECT * FROM patients');
+  return await db.select('SELECT * FROM patients ORDER BY id DESC');
 }
 
-// ECU-11: Visualizar Historial Signos (Ordenado por fecha para gráficas)
 export async function getVitalSigns() {
   const db = await initDatabase();
   return await db.select('SELECT * FROM vital_signs ORDER BY date ASC');
 }
 
-// ECU-09B: Historial Medicamentos
 export async function getTreatments() {
   const db = await initDatabase();
-  return await db.select('SELECT * FROM treatments');
+  return await db.select('SELECT * FROM treatments ORDER BY id DESC');
 }
 
-// ECU-06B: Historial Notas
 export async function getNurseNotes() {
   const db = await initDatabase();
-  // Mapeamos nurse_name a nurseName para consistencia en el frontend
+  // Alias nurse_name as nurseName for frontend compatibility
   return await db.select('SELECT *, nurse_name as nurseName FROM nurse_notes ORDER BY date DESC');
 }
 
@@ -169,7 +220,8 @@ export async function getAppointments() {
     return await db.select('SELECT * FROM appointments ORDER BY date DESC');
 }
 
-// Operaciones de Escritura (Registros)
+// WRITE OPERATIONS
+
 export async function addVitalSignsDB(data) {
     const db = await initDatabase();
     await db.execute(
@@ -177,15 +229,15 @@ export async function addVitalSignsDB(data) {
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [data.patient_id, data.date, data.temperature, data.blood_pressure, data.heart_rate, data.respiratory_rate, data.registered_by]
     );
-    return await getVitalSigns(); // Devuelve lista actualizada
+    return await getVitalSigns();
 }
 
 export async function addTreatmentDB(data) {
     const db = await initDatabase();
     await db.execute(
-        `INSERT INTO treatments (patient_id, medication, dose, frequency, start_date, applied_by, last_application, route, status, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [data.patientId, data.medication, data.dose, data.frequency, data.startDate, data.appliedBy, data.lastApplication, 'Oral', 'Activo', data.notes]
+        `INSERT INTO treatments (patient_id, medication, dose, frequency, start_date, applied_by, last_application, status, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [data.patientId, data.medication, data.dose, data.frequency, data.startDate, data.appliedBy, data.lastApplication, 'Activo', data.notes]
     );
     return await getTreatments();
 }
@@ -202,62 +254,9 @@ export async function addNurseNoteDB(data) {
 
 export async function updatePatientDB(id, data) {
     const db = await initDatabase();
-    await db.execute(`UPDATE patients SET condition = ? WHERE id = ?`, [data.condition, id]);
-}
-
-// ================= DATOS SEMILLA (SEEDING) =================
-// Esto asegura que al iniciar tengas el usuario y datos para gráficas
-
-export async function seedInitialData() {
-  const db = await initDatabase();
-  
-  // 1. Usuario Enfermero con Cédula (ECU-01 y ECU-14)
-  const users = await db.select("SELECT count(*) as count FROM users WHERE license_number = 'ENF-12345'");
-  if (users[0].count === 0) {
-    console.log('Creando usuario enfermero por defecto...');
-    await db.execute(`
-      INSERT INTO users (username, password_hash, role, name, email, license_number, assigned_shifts)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [
-      'enfermero', 
-      'hash_enfermeros123', 
-      'nurse', 
-      'Enf. Laura Martínez', 
-      'laura@hospital.com', 
-      'ENF-12345', 
-      '{"start": "06:00", "end": "22:00", "area": "Piso 3 - Ala Norte"}' // JSON de turno
-    ]);
-  }
-
-  // 2. Pacientes (ECU-03)
-  const patients = await db.select("SELECT count(*) as count FROM patients");
-  if (patients[0].count === 0) {
-      await db.execute(`INSERT INTO patients (name, age, room, condition, admission_date, blood_type, allergies, diagnosis) VALUES ('Juan Pérez', 45, '301-A', 'Estable', '2025-10-20', 'O+', 'Penicilina', 'Neumonía')`);
-      await db.execute(`INSERT INTO patients (name, age, room, condition, admission_date, blood_type, allergies, diagnosis) VALUES ('María González', 62, '302-B', 'Crítico', '2025-10-21', 'A-', 'Ninguna', 'Post-operatorio')`);
-      await db.execute(`INSERT INTO patients (name, age, room, condition, admission_date, blood_type, allergies, diagnosis) VALUES ('Carlos Ruiz', 28, '303-A', 'Recuperación', '2025-10-23', 'B+', 'Polen', 'Apendicectomía')`);
-  }
-
-  // 3. Historial Signos Vitales (Para Módulo 6.1 - Gráficas)
-  const vitals = await db.select("SELECT count(*) as count FROM vital_signs");
-  if (vitals[0].count === 0) {
-      console.log('Generando historial de signos vitales...');
-      const pId = 1; // Juan Pérez
-      // Datos simulados en diferentes horas para ver la línea de tiempo en la gráfica
-      const history = [
-          { d: '24/10 08:00', t: '36.5', bp: '120/80', hr: '72' },
-          { d: '24/10 12:00', t: '37.2', bp: '125/82', hr: '78' },
-          { d: '24/10 16:00', t: '37.8', bp: '130/85', hr: '85' },
-          { d: '24/10 20:00', t: '38.5', bp: '135/88', hr: '92' }, // Pico de fiebre
-          { d: '25/10 00:00', t: '37.5', bp: '128/82', hr: '80' },
-          { d: '25/10 04:00', t: '36.8', bp: '122/80', hr: '74' }
-      ];
-
-      for (const v of history) {
-          await db.execute(
-              `INSERT INTO vital_signs (patient_id, date, temperature, blood_pressure, heart_rate, respiratory_rate, registered_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?)`,
-              [pId, v.d, v.t, v.bp, v.hr, '18', 'Sistema']
-          );
-      }
-  }
+    await db.execute(
+        `UPDATE patients SET condition = ? WHERE id = ?`,
+        [data.condition, id]
+    );
+    return await getPatients();
 }
