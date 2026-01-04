@@ -1,17 +1,11 @@
 import { useState, useEffect } from 'react';
 import { 
-    getPatients, 
-    getVitalSigns, 
-    getTreatments, 
-    getNurseNotes, 
-    getAppointments,
-    addVitalSignsDB,
-    addTreatmentDB,
-    addNurseNoteDB,
-    updatePatientDB,
+    getPatients, getVitalSigns, getTreatments, getNurseNotes, getAppointments,
+    addVitalSignsDB, addTreatmentDB, addNurseNoteDB, updatePatientDB, 
     initDatabase 
 } from '../services/database';
 
+// Inicializador global
 export const initializeApp = async () => {
     return await initDatabase();
 };
